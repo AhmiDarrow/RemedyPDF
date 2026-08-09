@@ -27,7 +27,7 @@ except ImportError:
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
-        __version__ = "1.3.6"
+        __version__ = "1.3.7"
 
 _UA = f"RemedyPDF/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 
@@ -243,7 +243,9 @@ def launch_installer(path: str) -> bool:
     p = Path(path)
     if not p.exists():
         return False
-    flags = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"]
+    # /CURRENTUSER keeps the silent update per-user (PrivilegesRequired=lowest)
+    # so it never tries to elevate and stall waiting on a UAC prompt mid-silent-run.
+    flags = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/CURRENTUSER"]
     try:
         if os.name == "nt":
             creationflags = 0

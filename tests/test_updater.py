@@ -174,6 +174,30 @@ def test_launch_installer_missing_path():
     assert launch_installer("C:/definitely/missing/setup.exe") is False
 
 
+def test_launch_installer_silent_flags(monkeypatch, tmp_path):
+    """Silent install must force per-user (/CURRENTUSER) so it never stalls on UAC."""
+    import utils.updater as upd
+
+    exe = tmp_path / "setup.exe"
+    exe.write_bytes(b"MZ")
+
+    captured = {}
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(upd.subprocess, "Popen", FakePopen)
+    assert launch_installer(str(exe)) is True
+    assert captured["cmd"][0] == str(exe)
+    joined = " ".join(captured["cmd"])
+    assert "/VERYSILENT" in joined
+    assert "/SUPPRESSMSGBOXES" in joined
+    assert "/CURRENTUSER" in joined
+    assert captured["kwargs"].get("shell") is False
+
+
 def test_install_update_spawns(monkeypatch, tmp_path):
     import utils.updater as upd
 

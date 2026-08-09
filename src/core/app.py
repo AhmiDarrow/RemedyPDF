@@ -47,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.3.6"
+        VERSION = "1.3.7"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
@@ -184,6 +184,7 @@ class RemedyPDFApp(QMainWindow):
         self._edit_dialog_open: bool = False
         self._prefetch_queued: bool = False  # collapse idle neighbor warm-ups
         self._auto_update_done: bool = False  # one silent startup check per launch
+        self._quitting_for_update: bool = False  # skip dirty-save prompt on update quit
         # Wheel-zoom bursts (trackpad) re-render once after the burst settles
         # instead of once per notch — big smoothness win while pinching/zooming.
         self._zoom_debounce = QTimer(self)
@@ -1386,8 +1387,24 @@ class RemedyPDFApp(QMainWindow):
             f"Update installer launched — {APP_NAME} will restart on the new version.",
             6000,
         )
-        # Give the detached installer a beat to grab file handles, then exit
-        QTimer.singleShot(1200, self.close)
+        # Give the detached installer a beat to initialize, then exit the
+        # process for real so Inno can overwrite the exe. (A dirty-document
+        # save prompt or a lingering window would keep this process alive and
+        # block CloseApplications from replacing RemedyPDF.exe.)
+        self._quitting_for_update = True
+        QTimer.singleShot(1500, self._finish_update_quit)
+
+    def _finish_update_quit(self) -> None:
+        """Close the window and exit the process so the installer can replace files."""
+        self._quitting_for_update = True
+        try:
+            self.close()  # closeEvent skips the dirty-save prompt (flag set)
+        except Exception:  # noqa: BLE001
+            pass
+        QApplication.processEvents()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _on_install_failed(self, err: str) -> None:
         if getattr(self, "_progress", None) is not None:
@@ -1450,6 +1467,15 @@ class RemedyPDFApp(QMainWindow):
         return False
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if getattr(self, "_quitting_for_update", False):
+            # Update install in progress — no save prompt, just exit so the
+            # installer can replace the exe without waiting on user input.
+            try:
+                self.engine.close()
+            except Exception:  # noqa: BLE001
+                pass
+            super().closeEvent(event)
+            return
         if self._dirty and self.engine.is_open and not self._is_headless():
             reply = QMessageBox.question(
                 self,

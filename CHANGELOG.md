@@ -2,6 +2,15 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.7] — 2026-08-10
+
+### Fixed
+- Auto-update actually installs and relaunches now:
+  - Removed `skipifsilent` from the Inno `[Run]` step, so silent updates launch the new version.
+  - Forced `/CURRENTUSER` per-user silent install — no UAC stall mid-update.
+  - The app now exits the process for real after launching the installer; a dirty-document
+    save prompt could previously keep it alive and block the exe replacement.
+
 ## [1.3.6] — 2026-08-09
 
 ### Performance — render pipeline is now C-speed
