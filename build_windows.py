@@ -18,8 +18,11 @@ def build_windows_installer() -> None:
 
     icon_arg = str(icon_ico if icon_ico.is_file() else icon_png)
     sep = ";" if sys.platform == "win32" else ":"
+    # Absolute source path — relative "resources" breaks when --specpath is build/
+    resources_src = str((ROOT / "resources").resolve())
     print("Building Windows onefile (RemedyPDF)…")
     print(f"  icon: {icon_arg}")
+    print(f"  resources: {resources_src}")
     cmd = [
         sys.executable,
         "-m",
@@ -30,7 +33,33 @@ def build_windows_installer() -> None:
         "RemedyPDF",
         "--onefile",
         "--windowed",
-        f"--add-data=resources{sep}resources",
+        f"--add-data={resources_src}{sep}resources",
+        "--paths",
+        str(ROOT),
+        "--hidden-import",
+        "src",
+        "--hidden-import",
+        "src.core.app",
+        "--hidden-import",
+        "src.core.pdf_engine",
+        "--hidden-import",
+        "src.ui.about",
+        "--hidden-import",
+        "src.ui.theme",
+        "--hidden-import",
+        "src.ui.widgets",
+        "--hidden-import",
+        "src.utils.brand",
+        "--hidden-import",
+        "src.utils.updater",
+        "--hidden-import",
+        "src.utils.mobile",
+        "--hidden-import",
+        "src.utils.paths",
+        "--collect-all",
+        "PyQt5",
+        "--collect-all",
+        "fitz",
         "--icon",
         icon_arg,
         "--distpath",
