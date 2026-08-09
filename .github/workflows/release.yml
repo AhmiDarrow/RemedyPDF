@@ -7,9 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v1.3.0). Leave empty to use git ref."
+        description: "Release tag to build (e.g. v1.3.4). Leave empty to use git ref."
         required: false
         default: ""
+      build_apk:
+        description: "Also attempt full Buildozer APK (slow, often fails on free runners)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: write
@@ -79,7 +87,6 @@ jobs:
             ls -la dist || true
             exit 1
           fi
-          # Prefer Inno installer; fall back to onefile named as setup
           SETUP=""
           for f in dist/RemedyPDF-*-windows-setup.exe dist/*Setup*.exe dist/*-setup.exe; do
             if [ -f "$f" ]; then SETUP="$f"; break; fi
@@ -103,7 +110,8 @@ jobs:
     name: Build Android package
     needs: test-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # Fast by default: zip-only. Full Buildozer is opt-in (workflow_dispatch build_apk=true).
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -114,45 +122,57 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install base deps (Ubuntu 24.04 safe)
+      - name: Package Android (zip-first, always)
+        env:
+          REMEDYPDF_MOBILE: "1"
+          BUILDOZER_WARN_ON_ROOT: "0"
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pillow pymupdf || true
+
+          # Always emit versioned android-src.zip (reliable release asset)
+          python build_android.py --zip-only
+
+          mkdir -p dist/android
+          shopt -s nullglob
+          for f in dist/RemedyPDF-*-android-src.zip; do
+            [ -f "$f" ] || continue
+            cp "$f" dist/android/
+          done
+          if [ -z "$(ls -A dist/android 2>/dev/null)" ]; then
+            echo "No android zip — fail" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          ls -la dist/android
+          echo "OK android-src zip staged (fast path)"
+
+      - name: Optional Buildozer APK (slow, opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_apk == 'true' }}
+        timeout-minutes: 150
+        env:
+          REMEDYPDF_MOBILE: "1"
+          BUILDOZER_WARN_ON_ROOT: "0"
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          # NOTE: libtinfo5 / libncurses5 were removed on Ubuntu 24.04 — do not install them
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             openjdk-17-jdk unzip wget curl git zip \
             libffi-dev libssl-dev autoconf automake libtool pkg-config \
             zlib1g-dev libncurses-dev cmake build-essential \
             ccache libltdl-dev
-          java -version
-          python -m pip install --upgrade pip
           pip install buildozer cython virtualenv
 
-      - name: Install Android SDK + NDK (best-effort)
-        id: sdk
-        continue-on-error: true
-        run: |
-          set -euo pipefail
           SDK_ROOT="${GITHUB_WORKSPACE}/tools/android-sdk"
           mkdir -p "$SDK_ROOT/cmdline-tools"
           cd /tmp
-          # Pin a known commandlinetools zip; fall back to latest path if needed
           URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           curl -fsSL -o cmdtools.zip "$URL"
-          rm -rf "$SDK_ROOT/cmdline-tools"/*
           unzip -q cmdtools.zip -d "$SDK_ROOT/cmdline-tools"
           if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
             mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
-          elif [ ! -d "$SDK_ROOT/cmdline-tools/latest" ]; then
-            # Some zips unpack flat — normalize
-            mkdir -p "$SDK_ROOT/cmdline-tools/latest"
-            mv "$SDK_ROOT/cmdline-tools"/* "$SDK_ROOT/cmdline-tools/latest/" 2>/dev/null || true
           fi
-          test -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           export ANDROID_HOME="$SDK_ROOT"
           export ANDROID_SDK_ROOT="$SDK_ROOT"
           yes 2>/dev/null | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/tmp/sdk-lic.txt || true
@@ -160,52 +180,16 @@ jobs:
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.2" \
-            "ndk;25.2.9519653"
-          echo "sdk_ok=true" >> "$GITHUB_OUTPUT"
-          ls -la "$SDK_ROOT" || true
+            "ndk;25.2.9519653" || true
 
-      - name: Package Android (APK if possible, always src zip)
-        env:
-          REMEDYPDF_MOBILE: "1"
-          BUILDOZER_WARN_ON_ROOT: "0"
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install buildozer cython virtualenv pillow pymupdf || true
-
-          # Always stage + zip first so release never lacks an Android asset
-          python build_android.py --zip-only
-
-          # Attempt real APK when SDK step succeeded
-          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -d "${ANDROID_SDK_ROOT}" ]; then
-            echo "SDK present at $ANDROID_SDK_ROOT — attempting Buildozer APK"
-            python build_android.py --prefer-apk || echo "WARN: Buildozer APK failed; keeping src zip"
-          else
-            echo "WARN: ANDROID_SDK_ROOT missing — shipping android-src zip only"
-          fi
-
-          mkdir -p dist/android
+          cd "${GITHUB_WORKSPACE}"
+          python build_android.py --prefer-apk || echo "WARN: Buildozer APK failed; keeping src zip"
           shopt -s nullglob
           for f in dist/RemedyPDF-*-android.apk bin/*.apk; do
             [ -f "$f" ] || continue
             cp "$f" dist/android/
           done
-          for f in dist/RemedyPDF-*-android-src.zip; do
-            [ -f "$f" ] || continue
-            cp "$f" dist/android/
-          done
-          if [ -z "$(ls -A dist/android 2>/dev/null)" ]; then
-            echo "No android artifacts — fail" >&2
-            ls -la dist || true
-            exit 1
-          fi
-          ls -la dist/android
-          if ls dist/android/*.apk >/dev/null 2>&1; then
-            echo "OK real APK present"
-          else
-            echo "WARN: APK not produced — src zip only"
-          fi
+          ls -la dist/android || true
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -273,6 +257,7 @@ jobs:
           if [ ! -f "dist/release/$EXE" ] && [ -f dist/release/RemedyPDF.exe ]; then
             cp dist/release/RemedyPDF.exe "dist/release/$EXE"
           fi
+          # Prefer real APK URL in latest.json when present; else point android-arm64 at src zip
           python scripts/write_latest_json.py \
             --version "$VER" \
             --tag "$TAG" \
@@ -282,9 +267,37 @@ jobs:
             --out dist/release/latest.json \
             "${APK_ARGS[@]}" \
             "${AZIP_ARGS[@]}"
+          # If no APK, rewrite android-arm64 primary url to src zip so autoupdate is not a 404
+          python - <<'PY'
+          import json, glob, pathlib
+          p = pathlib.Path("dist/release/latest.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          apks = list(pathlib.Path("dist/release").glob("*.apk"))
+          zips = list(pathlib.Path("dist/release").glob("*android-src.zip")) + list(
+              pathlib.Path("dist/release").glob("*android*.zip")
+          )
+          plat = data.setdefault("platforms", {}).setdefault("android-arm64", {})
+          if not apks and zips:
+              z = zips[0].name
+              tag = data.get("tag_name") or ""
+              repo = "${{ github.repository }}"
+              base = f"https://github.com/{repo}/releases/download/{tag}"
+              plat["url"] = f"{base}/{z}"
+              plat["src_zip_url"] = f"{base}/{z}"
+              plat["kind"] = "android-src-zip"
+              data.setdefault("assets", {})["android_apk"] = ""
+              data["assets"]["android_src_zip"] = z
+              data["notes"] = (data.get("notes") or "") + (
+                  " Android ships as mobile source zip (Buildozer APK is opt-in on CI)."
+              )
+              p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+              print("latest.json android-arm64 -> src zip", z)
+          else:
+              print("latest.json left as-is; apks=", [a.name for a in apks])
+          print(p.read_text(encoding="utf-8"))
+          PY
           cp resources/icon.png dist/release/icon.png || true
           ls -la dist/release
-          cat dist/release/latest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -308,13 +321,14 @@ jobs:
             |----------|--------|
             | **Windows** | `RemedyPDF-*-windows-setup.exe` (Inno Setup — Start Menu + Desktop) |
             | **Windows portable** | `RemedyPDF-*-windows.exe` / `RemedyPDF.exe` |
-            | **Android** | `RemedyPDF-*-android.apk` or `*-android-src.zip` |
+            | **Android** | `*-android-src.zip` (mobile package; full APK via opt-in CI) |
 
             Help → About → **Check for updates** uses GitHub Releases + `latest.json`.
 
             ### Notes
-            - Themes, both-sides book mode, fine zoom, mobile polish
-            - Auto-update via GitHub Releases + `latest.json` (windows-x86_64 + android-arm64)
+            - Themes recolor chrome **and** document text/paper
+            - Both-sides book mode, fine zoom, mobile polish
+            - Android CI is **zip-first** (fast/reliable). Full Buildozer APK is workflow_dispatch `build_apk=true`.
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
           files: |

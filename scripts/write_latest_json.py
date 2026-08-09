@@ -56,6 +56,10 @@ def main() -> int:
         "Hi I'm Ahmi, hope this helps!"
     )
 
+    # Prefer real APK as primary android URL when a non-empty name is provided;
+    # callers may pass only the zip (CI zip-first path) and rewrite later.
+    android_primary = apk_name if apk_name else azip_name
+    android_kind = "apk" if apk_name else "android-src-zip"
     platforms = {
         "windows-x86_64": {
             "url": f"{base}/{setup_name}",
@@ -64,10 +68,10 @@ def main() -> int:
             "kind": "installer",
         },
         "android-arm64": {
-            "url": f"{base}/{apk_name}",
+            "url": f"{base}/{android_primary}",
             "src_zip_url": f"{base}/{azip_name}",
             "signature": "",
-            "kind": "apk",
+            "kind": android_kind,
         },
     }
 

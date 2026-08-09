@@ -2,6 +2,14 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.4] — 2026-08-09
+
+### Fixed — Android release path (fast + reliable)
+- **Zip-first Android CI** by default — no Buildozer/NDK on every tag (was slow and error-filled on free runners)
+- Full Buildozer APK is **opt-in**: workflow_dispatch `build_apk=true`
+- `latest.json` android-arm64 points at the real asset (APK if present, else `*-android-src.zip`) so autoupdate never 404s
+- Release always ships Windows Setup + portable + Android mobile zip
+
 ## [1.3.3] — 2026-08-09
 
 ### Fixed — Android CI / APK path

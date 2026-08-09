@@ -27,27 +27,33 @@ Inno Setup is auto-downloaded into `tools/InnoSetup` when missing (CI does this 
 
 ## Android
 
-1. Download **`RemedyPDF-*-android.apk`** when a full APK is attached to the release,
-   **or** the **`RemedyPDF-*-android-src.zip`** mobile source bundle + README.
-2. Enable **Install unknown apps** for your file manager / browser.
-3. Open the APK to install.
+Every release ships **`RemedyPDF-*-android-src.zip`** (mobile-ready sources +
+`buildozer.spec` + `main_android.py`). That is the default, reliable Android asset.
 
-Full APK builds need Buildozer + Android SDK/NDK (Linux/macOS CI or WSL):
+When a full **`RemedyPDF-*-android.apk`** is attached (opt-in CI or local Buildozer):
+
+1. Enable **Install unknown apps** for your file manager / browser.
+2. Open the APK to install.
+
+### Why zip-first?
+
+Buildozer + NDK on free GitHub runners is slow (often 30–90+ minutes) and fragile
+(PyQt5 is not a stock p4a recipe). Tag releases therefore **always** publish the
+mobile source zip in minutes. Full APK is optional:
 
 ```bash
-# Install Python helpers + env scripts (Windows OK; real APK on Linux/WSL/CI)
+# Local / WSL / Linux with SDK+NDK:
 python scripts/setup_android_toolchain.py
+source tools/android/env.sh   # or tools/android/env.ps1
+python build_android.py --prefer-apk
 
-# Linux / WSL / CI:
-source tools/android/env.sh   # or tools/android/env.ps1 on PowerShell
-python build_android.py
+# CI opt-in: Actions → Release → Run workflow → build_apk = true
 ```
 
-Release workflow (`ubuntu-latest`) installs cmdline-tools + NDK and runs the same
-script so the next tag can ship `RemedyPDF-*-android.apk` when Buildozer succeeds.
-
-Without a full SDK, `build_android.py` still stages the mobile source zip and
-`ANDROID_BUILD.md` so the release always has an Android artifact.
+```bash
+# Fast package only (what CI does on every tag):
+python build_android.py --zip-only
+```
 
 ## Auto-update
 

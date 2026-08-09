@@ -25,7 +25,7 @@ A sleek, fast multi-format document viewer and editor with Remedy themes, both-s
 - **Brand assets** — Window icon (`resources/icon.ico` / `icon.png`) + About logo (`logo_ui.png`)
 - **About + Auto-Update** — SecretSticky-style About (hello, platform tags, Check for updates) against GitHub Releases + `latest.json`
 - **Windows installer** — Inno Setup `*-windows-setup.exe` (Start Menu + Desktop shortcuts) + portable onefile
-- **Android APK** — Buildozer package when SDK present; otherwise versioned mobile source zip on Releases
+- **Android package** — every release ships `*-android-src.zip` (fast CI); full APK via opt-in Buildozer
 
 ## Requirements
 
@@ -97,7 +97,7 @@ Release workflow publishes:
 
 - `RemedyPDF-*-windows-setup.exe` — Inno Setup installer
 - `RemedyPDF-*-windows.exe` / `RemedyPDF.exe` — portable onefile
-- `RemedyPDF-*-android.apk` or `*-android-src.zip`
+- `RemedyPDF-*-android-src.zip` (always) and optional `*-android.apk`
 - `latest.json` — multi-platform `{ version, platforms.windows-x86_64, platforms.android-arm64 }`
 - `icon.png`
 
@@ -125,14 +125,20 @@ Inno Setup 6 is used when present, or auto-downloaded into `tools/InnoSetup`
 
 See [docs/INSTALL.md](docs/INSTALL.md).
 
-### Android APK
+### Android package
 
 ```bash
-python scripts/setup_android_toolchain.py   # buildozer/cython + tools/android/*
-python build_android.py
-# With Buildozer+SDK (Linux/WSL/CI): → dist/RemedyPDF-<ver>-android.apk
-# Without:                           → dist/RemedyPDF-<ver>-android-src.zip
+# Fast (what every tag ships):
+python build_android.py --zip-only
+# → dist/RemedyPDF-<ver>-android-src.zip
+
+# Full APK (Linux/WSL + SDK/NDK; slow):
+python scripts/setup_android_toolchain.py
+python build_android.py --prefer-apk
+# → dist/RemedyPDF-<ver>-android.apk
 ```
+
+CI Release is **zip-first**. Opt-in full APK: workflow_dispatch `build_apk=true`.
 
 Touch/APK notes:
 
@@ -148,7 +154,7 @@ Touch/APK notes:
 4. Tag and push: `git tag v1.3.0 && git push origin v1.3.0`
 5. GitHub Actions **Release** workflow builds:
    - Windows Setup installer + portable exe
-   - Android APK or mobile source zip
+   - Android mobile source zip (APK only if `build_apk=true`)
    - `latest.json` (multi-platform autoupdate channel)
 
 ## License
