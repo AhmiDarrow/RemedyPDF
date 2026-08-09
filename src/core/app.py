@@ -47,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.3.5"
+        VERSION = "1.3.6"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
@@ -184,6 +184,12 @@ class RemedyPDFApp(QMainWindow):
         self._edit_dialog_open: bool = False
         self._prefetch_queued: bool = False  # collapse idle neighbor warm-ups
         self._auto_update_done: bool = False  # one silent startup check per launch
+        # Wheel-zoom bursts (trackpad) re-render once after the burst settles
+        # instead of once per notch — big smoothness win while pinching/zooming.
+        self._zoom_debounce = QTimer(self)
+        self._zoom_debounce.setSingleShot(True)
+        self._zoom_debounce.setInterval(60)
+        self._zoom_debounce.timeout.connect(self._flush_zoom_render)
         self._build_ui()
         self._build_menus()
         self._build_toolbar()
@@ -600,7 +606,12 @@ class RemedyPDFApp(QMainWindow):
     # ----- wheel: Ctrl = fine 1%; Ctrl+Shift = coarse 15% -----
 
     def _zoom_from_wheel(self, event: QWheelEvent) -> bool:
-        """Handle Ctrl(+Shift)+wheel zoom. Returns True if consumed."""
+        """Handle Ctrl(+Shift)+wheel zoom. Returns True if consumed.
+
+        The engine zoom is applied immediately (cheap) but the full re-render
+        is deferred to a 60ms debounce so a trackpad burst collapses into ONE
+        render instead of one (expensive, capped-fit) raster per notch.
+        """
         if not (event.modifiers() & Qt.ControlModifier):
             return False
         delta = event.angleDelta().y()
@@ -613,8 +624,15 @@ class RemedyPDFApp(QMainWindow):
             step = PDFEngine.ZOOM_COARSE if delta > 0 else -PDFEngine.ZOOM_COARSE
         else:
             step = PDFEngine.ZOOM_FINE if delta > 0 else -PDFEngine.ZOOM_FINE
-        self.adjust_zoom(step)
+        self.engine.set_zoom(self.engine.zoom + step)  # cheap: just clamps + clears cache
+        self._zoom_debounce.start()
+        self._update_status()  # live % label while the burst is in flight
         return True
+
+    def _flush_zoom_render(self) -> None:
+        """Debounced full render after a wheel-zoom burst settles."""
+        self.render_current()
+        self._update_status()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         if self._zoom_from_wheel(event):

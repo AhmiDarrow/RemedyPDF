@@ -409,3 +409,79 @@ def test_render_view_rgb_and_lru(multi_page_pdf: Path):
     assert a is not None and b is not None
     assert a[0] == b[0] and a[1] == b[1]
     eng.close()
+
+
+def test_theme_recolor_fast(tmp_path: Path):
+    """Theme ink/paper recolor must run at LUT (C) speed, not per-pixel Python.
+
+    Regression guard: the old _apply_theme_recolor looped every pixel in pure
+    Python (seconds on fit-capped pages). With the 256-entry LUT path a
+    5+ MP render must complete well under a second.
+    """
+    import time
+
+    path = tmp_path / "big.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=500, height=700)
+    page.draw_rect(page.rect, color=(1, 1, 1), fill=(1, 1, 1))
+    for i in range(150):
+        page.insert_text((40 + (i % 20) * 22, 60 + (i // 20) * 22), f"L{i}", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+    eng = PDFEngine(zoom=1.0)
+    assert eng.open(str(path))
+    eng.set_theme_page_colors(ink=(30, 32, 40), paper=(245, 246, 250), enabled=True)
+    t0 = time.perf_counter()
+    rgb = eng.render_view_rgb(zoom=4.0)  # 2000x2800 = 5.6 MP
+    dt = time.perf_counter() - t0
+    assert rgb is not None
+    w, h, _data = rgb
+    assert w * h >= 5_000_000  # big enough to catch a per-pixel Python loop
+    assert dt < 1.0, f"theme recolor too slow: {dt * 1000:.0f} ms"
+    eng.close()
+
+
+def test_book_spread_logical_matches_render(multi_page_pdf: Path):
+    """Book-mode logical size must equal the rendered spread (no forced rescale).
+
+    Regression guard: get_view_size_at_zoom used an 8.0*z gutter while
+    _compose_spread_rgb painted a max(10, int(14*z)) gap, so render_current
+    smooth-scaled EVERY book-mode frame. Sizes must now agree to ~2 px.
+    """
+    eng = PDFEngine(zoom=1.25)
+    eng.open(str(multi_page_pdf))
+    eng.set_book_mode(True)
+    eng.set_current_page(0)
+    rgb = eng.render_view_rgb()  # zoom 1.25
+    assert rgb is not None
+    rw, rh, _data = rgb
+    lw, lh = eng.get_view_size_at_zoom(eng.zoom)
+    assert abs(rw - lw) <= 2.0, f"spread width mismatch: render {rw} vs logical {lw}"
+    assert abs(rh - lh) <= 2.0, f"spread height mismatch: render {rh} vs logical {lh}"
+    eng.close()
+
+
+def test_gray_pixmap_converts_fast_and_correct(tmp_path: Path):
+    """Grayscale pages (n==1) must render to RGB via the C path."""
+    import time
+
+    path = tmp_path / "gray.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    # Set colorspace to gray so the pixmap comes back as n==1
+    page.draw_rect(page.rect, color=(0.5,), fill=(0.5,))
+    page.insert_text((72, 72), "Gray", fontsize=14, color=(0.0,))
+    doc.save(path)
+    doc.close()
+
+    eng = PDFEngine(zoom=1.0)
+    assert eng.open(str(path))
+    t0 = time.perf_counter()
+    rgb = eng.render_view_rgb(zoom=3.0)
+    dt = time.perf_counter() - t0
+    assert rgb is not None
+    w, h, data = rgb
+    assert len(data) == w * h * 3  # RGB24, not gray
+    assert dt < 1.0, f"gray convert too slow: {dt * 1000:.0f} ms"
+    eng.close()

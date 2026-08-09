@@ -2,6 +2,19 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.6] — 2026-08-09
+
+### Performance — render pipeline is now C-speed
+- **Theme ink/paper recolor rewritten as 256-entry LUTs** (`Image.point`) instead of a per-pixel pure-Python loop — the old path ran O(pixels) Python float math on **every** render (seconds on fit-capped pages); a 5.6 MP recolored render now completes in ~0.14 s
+- **Grayscale pages (n==1) convert to RGB in C** via MuPDF (`fitz.csRGB`) instead of a Python expansion loop
+- **Sepia / Warm / Cool filters use precomputed LUTs** instead of `point(lambda …)` callbacks (pure-Python per pixel)
+- **Book-mode spread no longer forces a rescale every frame** — `get_view_size_at_zoom` gutter now matches the renderer's `max(10, int(14*z))` gap, so the logical size equals the rendered pixmap and `render_current` skips the expensive `SmoothTransformation`
+- **`MAX_RENDER_ZOOM` raised 4.0 → 6.0** — fit-width on 1080p+ no longer trips the cap and pays a costly Smooth rescale; the 24 MP pixel budget is still the hard memory guard
+- **Wheel-zoom debounced (60 ms)** — trackpad bursts collapse into ONE render instead of one rasterization per notch; zoom % label updates live
+
+### Tests
+- Added speed-regression guards: theme recolor < 1 s at 5+ MP, gray conversion < 1 s, book-mode logical size == rendered spread (±2 px)
+
 ## [1.3.5] — 2026-08-09
 
 ### Added — real auto-update

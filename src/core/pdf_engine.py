@@ -53,7 +53,11 @@ class PDFEngine:
     # Render safety caps: 'fit' must never rasterize absurdly large buffers.
     # The UI rescales the (capped) pixmap to the exact logical view size, so
     # layout and click hit-testing stay exact while big screens stay fast.
-    MAX_RENDER_ZOOM = 4.0
+    # View renders rasterize at most MAX_RENDER_ZOOM (defensive ceiling) and
+    # always stay under MAX_RENDER_PIXELS (real memory guard). 6.0 covers
+    # fit-width on 1080p+ without the old 4.0 cap forcing a costly Smooth
+    # rescale on every fit; pixel budget still binds on huge pages.
+    MAX_RENDER_ZOOM = 6.0
     MAX_RENDER_PIXELS = 24_000_000  # per page, e.g. 6000x4000
     MAX_CACHE_BYTES = 256 * 1024 * 1024  # LRU memory budget (fit zoom ~13 MB/page)
 
@@ -401,18 +405,17 @@ class PDFEngine:
         paper = self.page_paper or (255, 255, 255)
         # Luminance: light source pixels → paper, dark → ink
         gray = img.convert("L")
-        g = gray.tobytes()
         ir, ig, ib = ink
         pr, pg, pb = paper
-        out = bytearray(len(g) * 3)
-        # t = g/255: 1.0 (white paper) → paper color, 0.0 (black ink) → ink color
-        for i, lum in enumerate(g):
-            t = lum / 255.0
-            j = i * 3
-            out[j] = int(ir + (pr - ir) * t + 0.5)
-            out[j + 1] = int(ig + (pg - ig) * t + 0.5)
-            out[j + 2] = int(ib + (pb - ib) * t + 0.5)
-        return Image.frombytes("RGB", img.size, bytes(out))
+        # Linear ramp out = ink + (paper - ink) * (lum/255) via 256-entry LUTs.
+        # point() with a list runs at C speed — the old per-pixel Python loop
+        # (float math per channel) cost seconds on fit-capped pages.
+        lut_r = [int(ir + (pr - ir) * i / 255.0 + 0.5) for i in range(256)]
+        lut_g = [int(ig + (pg - ig) * i / 255.0 + 0.5) for i in range(256)]
+        lut_b = [int(ib + (pb - ib) * i / 255.0 + 0.5) for i in range(256)]
+        return Image.merge(
+            "RGB", (gray.point(lut_r), gray.point(lut_g), gray.point(lut_b))
+        )
 
     def _apply_rgb_filter(
         self, w: int, h: int, data: bytes
@@ -447,21 +450,31 @@ class PDFEngine:
                 img = Image.merge(
                     "RGB",
                     (
-                        g.point(lambda x: min(255, int(x * 1.05))),
-                        g.point(lambda x: min(255, int(x * 0.92))),
-                        g.point(lambda x: min(255, int(x * 0.72))),
+                        g.point([min(255, int(x * 1.05)) for x in range(256)]),
+                        g.point([min(255, int(x * 0.92)) for x in range(256)]),
+                        g.point([min(255, int(x * 0.72)) for x in range(256)]),
                     ),
                 )
             elif f == "warm":
                 r, g, b = img.split()
-                r = r.point(lambda x: min(255, int(x * 1.08)))
-                b = b.point(lambda x: max(0, int(x * 0.90)))
-                img = Image.merge("RGB", (r, g, b))
+                img = Image.merge(
+                    "RGB",
+                    (
+                        r.point([min(255, int(x * 1.08)) for x in range(256)]),
+                        g,
+                        b.point([max(0, int(x * 0.90)) for x in range(256)]),
+                    ),
+                )
             elif f == "cool":
                 r, g, b = img.split()
-                r = r.point(lambda x: max(0, int(x * 0.92)))
-                b = b.point(lambda x: min(255, int(x * 1.08)))
-                img = Image.merge("RGB", (r, g, b))
+                img = Image.merge(
+                    "RGB",
+                    (
+                        r.point([max(0, int(x * 0.92)) for x in range(256)]),
+                        g,
+                        b.point([min(255, int(x * 1.08)) for x in range(256)]),
+                    ),
+                )
             return (w, h, img.tobytes())
         except Exception as exc:  # noqa: BLE001
             print(f"page filter skipped: {exc}")
@@ -534,8 +547,11 @@ class PDFEngine:
             h = float(r0.height) * z
             if len(pages) >= 2:
                 r1 = self.doc[pages[1]].rect
-                # Side-by-side + small spine gutter (~8px at z=1 → pts)
-                gutter = 8.0 * z
+                # Side-by-side + spine gutter. Keep in lockstep with
+                # _compose_spread_rgb's gap (max(10, int(14*z)) px) so the
+                # logical size equals the rendered spread — otherwise
+                # render_current smooth-scales EVERY book-mode frame.
+                gutter = max(10.0, 14.0 * z)
                 w = w + float(r1.width) * z + gutter
                 h = max(h, float(r1.height) * z)
             return (w, h)
@@ -590,7 +606,10 @@ class PDFEngine:
         try:
             src = pix
             owned = False
-            if getattr(pix, "alpha", False) or getattr(pix, "n", 3) not in (1, 3):
+            if getattr(pix, "alpha", False) or getattr(pix, "n", 3) != 3:
+                # Gray (n==1) / CMYK / alpha → RGB in C (MuPDF). The old
+                # pure-Python gray→RGB loop ran O(pixels) Python — seconds on
+                # fit-capped pages. This path is now C-speed.
                 src = fitz.Pixmap(fitz.csRGB, pix)
                 owned = True
             w, h = int(src.width), int(src.height)
