@@ -24,7 +24,7 @@ except ImportError:
         from __init__ import __version__ as VERSION  # type: ignore
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.3.2"
+        VERSION = "1.3.5"
 
 
 def main(argv: list[str] | None = None) -> int:

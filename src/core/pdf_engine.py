@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -49,6 +50,12 @@ class PDFEngine:
     ZOOM_FINE = 0.01  # 1%
     ZOOM_COARSE = 0.15  # 15%
     ZOOM_DEFAULT = 1.25
+    # Render safety caps: 'fit' must never rasterize absurdly large buffers.
+    # The UI rescales the (capped) pixmap to the exact logical view size, so
+    # layout and click hit-testing stay exact while big screens stay fast.
+    MAX_RENDER_ZOOM = 4.0
+    MAX_RENDER_PIXELS = 24_000_000  # per page, e.g. 6000x4000
+    MAX_CACHE_BYTES = 256 * 1024 * 1024  # LRU memory budget (fit zoom ~13 MB/page)
 
     def __init__(self, zoom: float = 1.25) -> None:
         self.zoom = float(zoom)
@@ -61,7 +68,8 @@ class PDFEngine:
         self.book_cover_alone: bool = False
         # True LRU of rendered RGB pages / spreads (avoids PNG encode on every paint)
         self._page_cache: "OrderedDict[tuple, dict]" = OrderedDict()
-        self._cache_max: int = 64  # bound memory on long reading sessions
+        self._cache_max: int = 64  # soft entry bound on long reading sessions
+        self._cache_bytes: int = 0  # real memory budget: renders grow with zoom
         self._format: str = ""
         # Page appearance filters (view-only — never baked into saved PDF)
         self.page_filter: str = "none"  # none|invert|sepia|grayscale|warm|cool
@@ -85,6 +93,7 @@ class PDFEngine:
             self.page_count = len(self.doc)
             self.current_page = 0
             self._page_cache.clear()
+            self._cache_bytes = 0
             self._format = p.suffix.lower().lstrip(".") or "pdf"
             return True
         except Exception as exc:  # noqa: BLE001 - surface open failures cleanly
@@ -107,6 +116,7 @@ class PDFEngine:
         self.page_count = 0
         self.current_page = 0
         self._page_cache.clear()
+        self._cache_bytes = 0
         self._format = ""
 
     @property
@@ -264,6 +274,7 @@ class PDFEngine:
     def set_zoom(self, zoom: float) -> None:
         self.zoom = max(self.ZOOM_MIN, min(float(zoom), self.ZOOM_MAX))
         self._page_cache.clear()
+        self._cache_bytes = 0
 
     # ----- reading / visibility filters (view-only) -----
 
@@ -543,20 +554,35 @@ class PDFEngine:
                 pass
         return item
 
+    @staticmethod
+    def _item_bytes(item: dict) -> int:
+        """Approx heap cost of one cached RGB render."""
+        return max(1, int(item.get("w", 0)) * int(item.get("h", 0)) * 3)
+
     def _cache_put(self, key, item: dict) -> None:
-        """Store render payload with true LRU eviction."""
+        """Store render payload with true LRU eviction under a byte budget."""
         if key in self._page_cache:
+            self._cache_bytes = max(
+                0, self._cache_bytes - self._item_bytes(self._page_cache[key])
+            )
             self._page_cache[key] = item
+            self._cache_bytes += self._item_bytes(item)
             try:
                 self._page_cache.move_to_end(key)
             except Exception:  # noqa: BLE001
                 pass
             return
-        while len(self._page_cache) >= self._cache_max:
+        self._cache_bytes += self._item_bytes(item)
+        # Evict oldest until under BOTH the byte budget and the entry cap.
+        while len(self._page_cache) and (
+            self._cache_bytes > self.MAX_CACHE_BYTES
+            or len(self._page_cache) >= self._cache_max
+        ):
             try:
-                self._page_cache.popitem(last=False)
+                _, victim = self._page_cache.popitem(last=False)
             except Exception:  # noqa: BLE001
                 break
+            self._cache_bytes = max(0, self._cache_bytes - self._item_bytes(victim))
         self._page_cache[key] = item
 
     def _pixmap_to_rgb(self, pix) -> Optional[Tuple[int, int, bytes]]:
@@ -595,19 +621,42 @@ class PDFEngine:
             print(f"Error converting pixmap: {exc}")
             return None
 
+    def _effective_render_zoom(self, page: int, zoom: float, *, uncapped: bool) -> float:
+        """Clamp a requested zoom to a sane rasterization budget.
+
+        'Fit' zooms on large screens can exceed MAX_RENDER_ZOOM; rasterizing at
+        that scale is pure waste since the pixmap is downscaled to the viewport.
+        Export paths pass uncapped=True for full-quality output.
+        """
+        if uncapped:
+            return round(float(zoom), 4)
+        rz = min(float(zoom), self.MAX_RENDER_ZOOM)
+        try:
+            r = self.doc[page].rect  # page size in points
+            area_pts = max(1.0, float(r.width) * float(r.height))
+            max_z = math.sqrt(self.MAX_RENDER_PIXELS / area_pts)
+            rz = min(rz, max_z)
+        except Exception:  # noqa: BLE001
+            pass
+        return round(rz, 4)
+
     def _render_page_rgb(
-        self, page: int, zoom: float
+        self, page: int, zoom: float, *, uncapped: bool = False
     ) -> Optional[Tuple[int, int, bytes]]:
-        """Render one page to (width, height, RGB24 bytes), LRU-cached."""
+        """Render one page to (width, height, RGB24 bytes), LRU-cached.
+
+        View renders are capped (see _effective_render_zoom) so 'fit' never
+        rasterizes absurd buffers; the caller rescales to the logical size.
+        """
         if self.doc is None or not (0 <= page < self.page_count):
             return None
-        z = round(float(zoom), 4)
+        z = self._effective_render_zoom(page, float(zoom), uncapped=uncapped)
         key = (page, z, "rgb", self._appearance_key())
         hit = self._cache_get(key)
         if hit is not None:
             return (hit["w"], hit["h"], hit["rgb"])
         try:
-            mat = fitz.Matrix(zoom, zoom)
+            mat = fitz.Matrix(z, z)  # effective (capped) zoom — key and buffer agree
             pix = self.doc[page].get_pixmap(matrix=mat, alpha=False)
             rgb = self._pixmap_to_rgb(pix)
             if rgb is None:
@@ -630,7 +679,7 @@ class PDFEngine:
         if not (0 <= idx < self.page_count):
             return None
         z = self.zoom if zoom is None else float(zoom)
-        rgb = self._render_page_rgb(idx, z)
+        rgb = self._render_page_rgb(idx, z, uncapped=True)
         if rgb is None:
             return None
         w, h, data = rgb
@@ -664,7 +713,8 @@ class PDFEngine:
         if len(pages) == 1:
             return self._render_page_rgb(pages[0], z)
 
-        zkey = round(z, 4)
+        # Key on the effective render zoom so capped fit zooms share one spread.
+        zkey = self._effective_render_zoom(pages[0], float(z), uncapped=False)
         key = (tuple(pages), zkey, "spread-rgb", self._appearance_key())
         hit = self._cache_get(key)
         if hit is not None:

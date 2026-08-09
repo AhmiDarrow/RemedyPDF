@@ -2,6 +2,22 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.5] — 2026-08-09
+
+### Added — real auto-update
+- **Auto-update now actually installs** — "Check for updates" and the background auto-check download the Windows installer and run it silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-`, per-user), then the app quits so the installer can replace files
+- Installer URL resolved from `latest.json` `platforms.windows-x86_64.url`, falling back to GitHub release assets (setup → portable → generic `.exe`)
+- Streamed download with progress dialog; update checks and installs run on a worker thread (no UI freeze on slow networks)
+- Auto-check ~4 s after launch; update prompt is non-blocking ("Later" defers, offline stays quiet)
+- Docs: `docs/AUTOUPDATE.md` rewritten to match the real flow
+
+### Fixed — fit lag / render performance
+- **Render zoom is now capped** (`MAX_RENDER_ZOOM = 4.0`, `MAX_RENDER_PIXELS = 24 MP`) so Fit Width/Page/Height never rasterizes a giant buffer on large screens (was up to ~96 MB/page at zoom 8; now ≤ 24 MB)
+- View rescales the capped pixmap to the exact logical size — fit still fills the viewport, click-to-edit hit-testing stays pixel-exact; **export** (`render_page`) remains uncapped for full quality
+- LRU render cache is now **byte-budgeted (256 MB)** instead of count-based — no more ~900 MB of fit-zoom pages sitting in RAM
+- Neighbor prefetch is deferred via `QTimer.singleShot(0, …)` with burst collapsing — the UI thread never blocks on 3 synchronous renders per fit/page-turn
+- Removed a redundant `QImage.copy()` per render (one less 14–28 MB full-buffer clone)
+
 ## [1.3.4] — 2026-08-09
 
 ### Fixed — Android release path (fast + reliable)

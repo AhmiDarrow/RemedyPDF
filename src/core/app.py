@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, QByteArray
+from PyQt5.QtCore import Qt, QByteArray, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence, QPixmap, QImage, QWheelEvent
 from PyQt5.QtWidgets import (
     QAction,
@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QScrollArea,
     QSpinBox,
     QStatusBar,
@@ -46,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.3.2"
+        VERSION = "1.3.5"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
@@ -73,7 +74,13 @@ try:
         recommended_window_size,
         touch_target_px,
     )
-    from utils.updater import check_for_update, format_update_message, open_url
+    from utils.updater import (
+        check_for_update,
+        find_installer_url,
+        format_update_message,
+        install_update,
+        open_url,
+    )
 except ImportError:  # script-style imports
     from src.ui.theme import (  # type: ignore
         DEFAULT_THEME,
@@ -99,12 +106,61 @@ except ImportError:  # script-style imports
     )
     from src.utils.updater import (  # type: ignore
         check_for_update,
+        find_installer_url,
         format_update_message,
+        install_update,
         open_url,
     )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RESOURCES_DIR = resources_dir()
+
+
+class _UpdateCheckWorker(QThread):
+    """Background GitHub update check — never blocks the UI thread."""
+
+    finished_ok = pyqtSignal(object)  # Optional[dict]
+    failed = pyqtSignal(str)
+
+    def __init__(self, current_version: str, parent=None) -> None:
+        super().__init__(parent)
+        self._version = current_version
+
+    def run(self) -> None:  # noqa: D401
+        try:
+            info = check_for_update(
+                owner=GITHUB_OWNER,
+                repo=GITHUB_REPO,
+                current_version=self._version,
+            )
+            self.finished_ok.emit(info)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+
+
+class _UpdateInstallWorker(QThread):
+    """Background installer download — reports progress, spawns the setup."""
+
+    progress = pyqtSignal(int, int)  # done, total
+    finished_ok = pyqtSignal(str)  # installer path
+    failed = pyqtSignal(str)
+
+    def __init__(self, info: dict, parent=None) -> None:
+        super().__init__(parent)
+        self._info = info
+
+    def run(self) -> None:  # noqa: D401
+        try:
+            path = install_update(
+                self._info,
+                progress=lambda done, total: self.progress.emit(done, total),
+            )
+            if path:
+                self.finished_ok.emit(path)
+            else:
+                self.failed.emit("No Windows installer available for this release.")
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
 
 
 class RemedyPDFApp(QMainWindow):
@@ -126,6 +182,8 @@ class RemedyPDFApp(QMainWindow):
         self._search_fresh: bool = False  # Enter after find: don't skip first hit
         self._dirty: bool = False
         self._edit_dialog_open: bool = False
+        self._prefetch_queued: bool = False  # collapse idle neighbor warm-ups
+        self._auto_update_done: bool = False  # one silent startup check per launch
         self._build_ui()
         self._build_menus()
         self._build_toolbar()
@@ -1094,8 +1152,9 @@ class RemedyPDFApp(QMainWindow):
             try:
                 image = QImage(data, w, h, w * 3, QImage.Format_RGB888)
                 if not image.isNull():
-                    # Copy pixels — QImage does not own the Python bytes buffer
-                    pix = QPixmap.fromImage(image.copy())
+                    # QImage borrows the bytes (held alive by `rgb`); QPixmap.fromImage
+                    # copies once — skip the redundant extra .copy() full-buffer clone.
+                    pix = QPixmap.fromImage(image)
             except Exception:  # noqa: BLE001
                 pix = None
         if pix is None or pix.isNull():
@@ -1108,6 +1167,15 @@ class RemedyPDFApp(QMainWindow):
                 self.canvas.clear_page("Invalid page image")
                 return
             pix = QPixmap.fromImage(image)
+        # Engine caps render scale (MAX_RENDER_ZOOM) — rescale to the exact
+        # logical view size so fit fills the viewport and hit-testing stays exact.
+        try:
+            lw, lh = self.engine.get_view_size_at_zoom(self.engine.zoom)
+            lw_i, lh_i = max(1, int(round(lw))), max(1, int(round(lh)))
+            if (pix.width(), pix.height()) != (lw_i, lh_i):
+                pix = pix.scaled(lw_i, lh_i, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        except Exception:  # noqa: BLE001
+            pass
         vw, vh = self.engine.get_view_size()
         self.canvas.set_page_metrics(vw, vh, self.engine.zoom)
         self.canvas.show_page(pix)
@@ -1124,11 +1192,9 @@ class RemedyPDFApp(QMainWindow):
                     vbar.setValue(0)
         except Exception:  # noqa: BLE001
             pass
-        # Warm adjacent page/spread into LRU for snappier next/prev
-        try:
-            self._prefetch_neighbors()
-        except Exception:  # noqa: BLE001
-            pass
+        # Warm adjacent page/spread into LRU for snappier next/prev — deferred
+        # off the render hot path so fit/zoom/page turns never pay 3 renders at once.
+        self._queue_prefetch()
 
     def _prefetch_neighbors(self) -> None:
         """Render next/prev page (or spread) into the engine LRU cache."""
@@ -1144,6 +1210,20 @@ class RemedyPDFApp(QMainWindow):
                     eng.render_view_rgb(page=idx, zoom=z)
                 except Exception:  # noqa: BLE001
                     pass
+
+    def _queue_prefetch(self) -> None:
+        """Schedule neighbor warm-up on the idle loop; collapse bursts."""
+        if self._prefetch_queued:
+            return
+        self._prefetch_queued = True
+        QTimer.singleShot(0, self._run_prefetch)
+
+    def _run_prefetch(self) -> None:
+        self._prefetch_queued = False
+        try:
+            self._prefetch_neighbors()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _update_status(self) -> None:
         zpct = int(round(self.engine.zoom * 100))
@@ -1183,31 +1263,125 @@ class RemedyPDFApp(QMainWindow):
         dlg.exec_()
 
     def check_for_updates(self, *, quiet_up_to_date: bool = False) -> None:
-        """Manual update check (Help menu / About). Network failures are soft."""
+        """Manual update check (Help menu). Runs off the UI thread."""
         if self._is_headless():
             return
-        info = check_for_update(
-            owner=GITHUB_OWNER,
-            repo=GITHUB_REPO,
-            current_version=VERSION,
-        )
-        msg = format_update_message(info, VERSION)
-        if info is None:
-            if quiet_up_to_date:
-                return
-            QMessageBox.information(self, APP_NAME, msg)
+        if getattr(self, "_update_worker", None) is not None and self._update_worker.isRunning():
+            return
+        self._quiet_up_to_date = quiet_up_to_date
+        self._update_worker = _UpdateCheckWorker(VERSION, self)
+        self._update_worker.finished_ok.connect(self._on_update_check_result)
+        self._update_worker.failed.connect(self._on_update_check_failed)
+        self._update_worker.start()
+
+    def _on_update_check_result(self, info: object) -> None:
+        data = info if isinstance(info, dict) else None
+        msg = format_update_message(data, VERSION)
+        if data is None:
+            if not getattr(self, "_quiet_up_to_date", False):
+                QMessageBox.information(self, APP_NAME, msg)
             return
         box = QMessageBox(self)
         box.setWindowTitle(f"{APP_NAME} update")
         box.setIcon(QMessageBox.Information)
         box.setText(msg)
-        open_btn = box.addButton("Open release", QMessageBox.AcceptRole)
+        install_btn = box.addButton("Download & install", QMessageBox.AcceptRole)
+        open_btn = box.addButton("Open release", QMessageBox.ActionRole)
         box.addButton(QMessageBox.Close)
         box.exec_()
-        if box.clickedButton() is open_btn:
-            url = str(info.get("url") or "")
+        clicked = box.clickedButton()
+        if clicked is install_btn:
+            self._download_and_install(data)
+        elif clicked is open_btn:
+            url = str(data.get("url") or "")
             if url:
                 open_url(url)
+
+    def _on_update_check_failed(self, err: str) -> None:
+        self.statusBar().showMessage(f"Update check failed: {err}", 4000)
+
+    def _auto_check_for_updates(self) -> None:
+        """Startup check: silent unless an update is actually available."""
+        if self._is_headless():
+            return
+        if getattr(self, "_auto_update_done", False):
+            return
+        self._auto_update_done = True
+        if getattr(self, "_update_worker", None) is not None and self._update_worker.isRunning():
+            return
+        worker = _UpdateCheckWorker(VERSION, self)
+        worker.finished_ok.connect(self._on_auto_update_result)
+        worker.failed.connect(lambda _err: None)  # silent on offline
+        self._update_worker = worker
+        worker.start()
+
+    def _on_auto_update_result(self, info: object) -> None:
+        data = info if isinstance(info, dict) else None
+        if not data:
+            return  # up to date / offline — stay quiet
+        tag = str(data.get("tag") or "?")
+        if not find_installer_url(data):
+            return  # nothing we can auto-install (e.g. portable-only release)
+        box = QMessageBox(self)
+        box.setWindowTitle(f"{APP_NAME} update available")
+        box.setIcon(QMessageBox.Information)
+        box.setText(
+            f"RemedyPDF v{tag} is available (you have v{VERSION}).\n\n"
+            "Download and install it now?"
+        )
+        install_btn = box.addButton("Download & install", QMessageBox.AcceptRole)
+        later_btn = box.addButton("Later", QMessageBox.RejectRole)
+        box.exec_()
+        if box.clickedButton() is install_btn:
+            self._download_and_install(data)
+
+    def _download_and_install(self, info: dict) -> None:
+        """Download the installer with progress, launch it, then quit."""
+        if getattr(self, "_install_worker", None) is not None and self._install_worker.isRunning():
+            return
+        self._pending_update_url = str(info.get("url") or "")
+        self._progress = QProgressDialog("Downloading update…", "Cancel", 0, 100, self)
+        self._progress.setWindowTitle(f"{APP_NAME} update")
+        self._progress.setMinimumDuration(300)
+        self._progress.setAutoClose(False)
+        self._progress.setAutoReset(False)
+        worker = _UpdateInstallWorker(info, self)
+        worker.progress.connect(self._on_install_progress)
+        worker.finished_ok.connect(self._on_install_done)
+        worker.failed.connect(self._on_install_failed)
+        self._install_worker = worker
+        worker.start()
+
+    def _on_install_progress(self, done: int, total: int) -> None:
+        if getattr(self, "_progress", None) is None:
+            return
+        if total > 0:
+            self._progress.setMaximum(max(total, 1))
+            self._progress.setValue(min(done, total))
+        else:
+            self._progress.setRange(0, 0)  # indeterminate
+
+    def _on_install_done(self, path: str) -> None:
+        if getattr(self, "_progress", None) is not None:
+            self._progress.close()
+        self.statusBar().showMessage(
+            f"Update installer launched — {APP_NAME} will restart on the new version.",
+            6000,
+        )
+        # Give the detached installer a beat to grab file handles, then exit
+        QTimer.singleShot(1200, self.close)
+
+    def _on_install_failed(self, err: str) -> None:
+        if getattr(self, "_progress", None) is not None:
+            self._progress.close()
+        QMessageBox.warning(
+            self,
+            f"{APP_NAME} update",
+            f"Could not install the update:\n{err}\n\n"
+            "Open the release page to download it manually.",
+        )
+        if getattr(self, "_pending_update_url", None):
+            open_url(self._pending_update_url)
 
     def show_shortcuts(self) -> None:
         QMessageBox.information(
@@ -1319,4 +1493,6 @@ def run(argv: Optional[list] = None) -> int:
             window.open_document(arg)
             break
     window.show()
+    # Auto-update: check GitHub ~4s after the window paints (non-blocking).
+    QTimer.singleShot(4000, window._auto_check_for_updates)
     return qapp.exec_()

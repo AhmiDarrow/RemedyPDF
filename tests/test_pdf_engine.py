@@ -98,6 +98,47 @@ def test_render_page_png(sample_pdf: Path):
     eng.close()
 
 
+def test_fit_render_zoom_capped(sample_pdf: Path):
+    """Fit on huge screens must never rasterize unbounded buffers."""
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(sample_pdf))
+    assert eng.MAX_RENDER_ZOOM < eng.ZOOM_MAX  # cap engages below the zoom ceiling
+    rgb = eng.render_view_rgb(zoom=eng.ZOOM_MAX)  # 8.0 >> cap
+    assert rgb is not None
+    w, h, _data = rgb
+    assert w <= 300 * eng.MAX_RENDER_ZOOM + 1
+    assert h <= 400 * eng.MAX_RENDER_ZOOM + 1
+    assert w * h <= eng.MAX_RENDER_PIXELS
+    eng.close()
+
+
+def test_export_render_not_capped(sample_pdf: Path):
+    """Export keeps full requested resolution (cap is view-only)."""
+    import io as _io
+
+    from PIL import Image
+
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(sample_pdf))
+    png = eng.render_page(0, zoom=eng.ZOOM_MAX)
+    assert png is not None
+    img = Image.open(_io.BytesIO(png))
+    assert (img.width, img.height) == (2400, 3200)  # 300x400 pts @ 8.0
+    eng.close()
+
+
+def test_cache_byte_budget(multi_page_pdf: Path):
+    """LRU evicts by memory, not just entry count, when renders are large."""
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(multi_page_pdf))
+    eng.MAX_CACHE_BYTES = 10_000_000  # 10 MB — forces eviction at zoom 4.0 renders
+    for i in range(eng.page_count):
+        eng.render_view_rgb(page=i, zoom=4.0)
+    assert eng._cache_bytes <= eng.MAX_CACHE_BYTES
+    assert len(eng._page_cache) <= eng._cache_max
+    eng.close()
+
+
 def test_add_text_and_save(sample_pdf: Path, tmp_path: Path):
     eng = PDFEngine()
     assert eng.open(str(sample_pdf))

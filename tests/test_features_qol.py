@@ -340,4 +340,5 @@ def test_render_current_uses_rgb_fast_path():
     src = inspect.getsource(app_mod.RemedyPDFApp.render_current)
     assert "render_view_rgb" in src
     assert "Format_RGB888" in src
-    assert "_prefetch_neighbors" in src
+    # Neighbor warm-up is deferred off the render hot path (anti-lag)
+    assert "_queue_prefetch" in src
