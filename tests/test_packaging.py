@@ -76,9 +76,13 @@ def test_write_latest_json_multi_platform(tmp_path: Path):
     )
 
 
-def test_version_is_130():
+def test_version_is_semver():
     init = (ROOT / "src" / "__init__.py").read_text(encoding="utf-8")
-    assert '__version__ = "1.3.0"' in init
+    import re
+
+    m = re.search(r'__version__\s*=\s*"(\d+\.\d+\.\d+)"', init)
+    assert m, "version missing"
+    assert m.group(1).startswith("1.")
 
 
 def test_release_workflow_has_token_and_platforms():

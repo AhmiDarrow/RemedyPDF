@@ -63,6 +63,14 @@ class PDFEngine:
         self._page_cache: "OrderedDict[tuple, dict]" = OrderedDict()
         self._cache_max: int = 64  # bound memory on long reading sessions
         self._format: str = ""
+        # Page appearance filters (view-only — never baked into saved PDF)
+        self.page_filter: str = "none"  # none|invert|sepia|grayscale|warm|cool
+        self.brightness: float = 1.0  # 0.5 .. 1.5
+        self.contrast: float = 1.0  # 0.5 .. 1.5
+        # Theme-linked document recolor (ink + paper). None = keep source colors.
+        self.page_ink: Optional[Tuple[int, int, int]] = None
+        self.page_paper: Optional[Tuple[int, int, int]] = None
+        self.theme_recolor: bool = False
 
     # ----- lifecycle -----
 
@@ -257,6 +265,197 @@ class PDFEngine:
         self.zoom = max(self.ZOOM_MIN, min(float(zoom), self.ZOOM_MAX))
         self._page_cache.clear()
 
+    # ----- reading / visibility filters (view-only) -----
+
+    FILTER_NAMES: Tuple[str, ...] = (
+        "none",
+        "invert",
+        "sepia",
+        "grayscale",
+        "warm",
+        "cool",
+    )
+
+    @staticmethod
+    def _parse_rgb(color) -> Optional[Tuple[int, int, int]]:
+        """Accept #hex, (r,g,b), or None → optional 0–255 RGB tuple."""
+        if color is None:
+            return None
+        if isinstance(color, (tuple, list)) and len(color) >= 3:
+            return (
+                max(0, min(255, int(color[0]))),
+                max(0, min(255, int(color[1]))),
+                max(0, min(255, int(color[2]))),
+            )
+        if isinstance(color, str):
+            h = color.strip().lstrip("#")
+            if len(h) == 3:
+                h = "".join(ch * 2 for ch in h)
+            if len(h) == 6:
+                try:
+                    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+                except ValueError:
+                    return None
+        return None
+
+    def set_theme_page_colors(
+        self,
+        ink=None,
+        paper=None,
+        *,
+        enabled: Optional[bool] = None,
+    ) -> None:
+        """Set theme-linked document ink/paper recolor (view-only).
+
+        When enabled (default True if either color given), grayscale luminance
+        of each pixel is mapped from paper (light) → ink (dark) so dark themes
+        get light text on dark paper and light themes keep dark text on light paper.
+        """
+        new_ink = self._parse_rgb(ink)
+        new_paper = self._parse_rgb(paper)
+        if enabled is None:
+            enabled = new_ink is not None or new_paper is not None
+        changed = (
+            new_ink != self.page_ink
+            or new_paper != self.page_paper
+            or bool(enabled) != self.theme_recolor
+        )
+        self.page_ink = new_ink
+        self.page_paper = new_paper
+        self.theme_recolor = bool(enabled) and (new_ink is not None or new_paper is not None)
+        if changed:
+            self._page_cache.clear()
+
+    def clear_theme_page_colors(self) -> None:
+        """Disable theme page recolor (source document colors)."""
+        if self.theme_recolor or self.page_ink is not None or self.page_paper is not None:
+            self.page_ink = None
+            self.page_paper = None
+            self.theme_recolor = False
+            self._page_cache.clear()
+
+    def set_page_filter(self, name: str) -> str:
+        """Set view filter: none | invert | sepia | grayscale | warm | cool."""
+        key = (name or "none").lower().strip()
+        if key not in self.FILTER_NAMES:
+            key = "none"
+        if key != self.page_filter:
+            self.page_filter = key
+            self._page_cache.clear()
+        return self.page_filter
+
+    def set_brightness(self, value: float) -> float:
+        self.brightness = max(0.5, min(1.5, float(value)))
+        self._page_cache.clear()
+        return self.brightness
+
+    def set_contrast(self, value: float) -> float:
+        self.contrast = max(0.5, min(1.5, float(value)))
+        self._page_cache.clear()
+        return self.contrast
+
+    def adjust_brightness(self, delta: float) -> float:
+        return self.set_brightness(self.brightness + float(delta))
+
+    def adjust_contrast(self, delta: float) -> float:
+        return self.set_contrast(self.contrast + float(delta))
+
+    def reset_page_appearance(self) -> None:
+        """Clear filters + brightness/contrast to defaults (keeps theme recolor)."""
+        self.page_filter = "none"
+        self.brightness = 1.0
+        self.contrast = 1.0
+        self._page_cache.clear()
+
+    def _appearance_key(self) -> tuple:
+        """Cache key fragment for current view filters + theme recolor."""
+        ink = self.page_ink or (None,)
+        paper = self.page_paper or (None,)
+        return (
+            self.page_filter,
+            round(self.brightness, 3),
+            round(self.contrast, 3),
+            bool(self.theme_recolor),
+            ink,
+            paper,
+        )
+
+    def _apply_theme_recolor(self, img):
+        """Map page luminance onto theme paper/ink colors (PIL Image → Image)."""
+        if not self.theme_recolor:
+            return img
+        from PIL import Image
+
+        ink = self.page_ink or (0, 0, 0)
+        paper = self.page_paper or (255, 255, 255)
+        # Luminance: light source pixels → paper, dark → ink
+        gray = img.convert("L")
+        g = gray.tobytes()
+        ir, ig, ib = ink
+        pr, pg, pb = paper
+        out = bytearray(len(g) * 3)
+        # t = g/255: 1.0 (white paper) → paper color, 0.0 (black ink) → ink color
+        for i, lum in enumerate(g):
+            t = lum / 255.0
+            j = i * 3
+            out[j] = int(ir + (pr - ir) * t + 0.5)
+            out[j + 1] = int(ig + (pg - ig) * t + 0.5)
+            out[j + 2] = int(ib + (pb - ib) * t + 0.5)
+        return Image.frombytes("RGB", img.size, bytes(out))
+
+    def _apply_rgb_filter(
+        self, w: int, h: int, data: bytes
+    ) -> Tuple[int, int, bytes]:
+        """Apply theme recolor + brightness/contrast + named filter to RGB24 bytes."""
+        need = (
+            self.theme_recolor
+            or self.page_filter != "none"
+            or abs(self.brightness - 1.0) > 1e-3
+            or abs(self.contrast - 1.0) > 1e-3
+        )
+        if not need or w <= 0 or h <= 0 or not data:
+            return (w, h, data)
+        try:
+            from PIL import Image, ImageEnhance, ImageOps
+
+            img = Image.frombytes("RGB", (w, h), data)
+            # Theme ink/paper first so named filters layer on top
+            if self.theme_recolor:
+                img = self._apply_theme_recolor(img)
+            if abs(self.brightness - 1.0) > 1e-3:
+                img = ImageEnhance.Brightness(img).enhance(self.brightness)
+            if abs(self.contrast - 1.0) > 1e-3:
+                img = ImageEnhance.Contrast(img).enhance(self.contrast)
+            f = self.page_filter
+            if f == "invert":
+                img = ImageOps.invert(img)
+            elif f == "grayscale":
+                img = ImageOps.grayscale(img).convert("RGB")
+            elif f == "sepia":
+                g = ImageOps.grayscale(img)
+                img = Image.merge(
+                    "RGB",
+                    (
+                        g.point(lambda x: min(255, int(x * 1.05))),
+                        g.point(lambda x: min(255, int(x * 0.92))),
+                        g.point(lambda x: min(255, int(x * 0.72))),
+                    ),
+                )
+            elif f == "warm":
+                r, g, b = img.split()
+                r = r.point(lambda x: min(255, int(x * 1.08)))
+                b = b.point(lambda x: max(0, int(x * 0.90)))
+                img = Image.merge("RGB", (r, g, b))
+            elif f == "cool":
+                r, g, b = img.split()
+                r = r.point(lambda x: max(0, int(x * 0.92)))
+                b = b.point(lambda x: min(255, int(x * 1.08)))
+                img = Image.merge("RGB", (r, g, b))
+            return (w, h, img.tobytes())
+        except Exception as exc:  # noqa: BLE001
+            print(f"page filter skipped: {exc}")
+            return (w, h, data)
+
     def reset_zoom(self, zoom: Optional[float] = None) -> float:
         """Reset zoom to ZOOM_DEFAULT, or an explicit platform default."""
         target = self.ZOOM_DEFAULT if zoom is None else float(zoom)
@@ -278,6 +477,59 @@ class PDFEngine:
 
     def coarse_zoom_out(self) -> float:
         return self.adjust_zoom(-self.ZOOM_COARSE)
+
+    def fit_zoom_for_viewport(
+        self,
+        avail_w: float,
+        avail_h: float,
+        *,
+        mode: str = "width",
+        margin: float = 24.0,
+    ) -> float:
+        """Compute zoom so the current view fits width, height, or page (both).
+
+        mode: 'width' | 'height' | 'page' (min of both). Uses page/spread size at zoom=1.
+        """
+        if self.doc is None or self.page_count <= 0:
+            return self.zoom
+        w_pts, h_pts = self.get_view_size_at_zoom(1.0)
+        if w_pts <= 1 or h_pts <= 1:
+            return self.zoom
+        aw = max(50.0, float(avail_w) - float(margin))
+        ah = max(50.0, float(avail_h) - float(margin))
+        zw = aw / float(w_pts)
+        zh = ah / float(h_pts)
+        m = (mode or "width").lower()
+        if m in ("height", "fit_height"):
+            target = zh
+        elif m in ("page", "fit", "fit_page", "best"):
+            target = min(zw, zh)
+        else:
+            target = zw  # width
+        self.set_zoom(target)
+        return self.zoom
+
+    def get_view_size_at_zoom(self, zoom: float) -> Tuple[float, float]:
+        """Page or spread size in points scaled by zoom (width, height)."""
+        if self.doc is None:
+            return (0.0, 0.0)
+        pages = self.spread_pages()
+        if not pages:
+            return (0.0, 0.0)
+        z = max(self.ZOOM_MIN, min(float(zoom), self.ZOOM_MAX))
+        try:
+            r0 = self.doc[pages[0]].rect
+            w = float(r0.width) * z
+            h = float(r0.height) * z
+            if len(pages) >= 2:
+                r1 = self.doc[pages[1]].rect
+                # Side-by-side + small spine gutter (~8px at z=1 → pts)
+                gutter = 8.0 * z
+                w = w + float(r1.width) * z + gutter
+                h = max(h, float(r1.height) * z)
+            return (w, h)
+        except Exception:  # noqa: BLE001
+            return (0.0, 0.0)
 
     # ----- rendering -----
 
@@ -350,7 +602,7 @@ class PDFEngine:
         if self.doc is None or not (0 <= page < self.page_count):
             return None
         z = round(float(zoom), 4)
-        key = (page, z, "rgb")
+        key = (page, z, "rgb", self._appearance_key())
         hit = self._cache_get(key)
         if hit is not None:
             return (hit["w"], hit["h"], hit["rgb"])
@@ -361,8 +613,9 @@ class PDFEngine:
             if rgb is None:
                 return None
             w, h, data = rgb
+            w, h, data = self._apply_rgb_filter(w, h, data)
             self._cache_put(key, {"w": w, "h": h, "rgb": data})
-            return rgb
+            return (w, h, data)
         except Exception as exc:  # noqa: BLE001
             print(f"Error rendering page {page}: {exc}")
             return None
@@ -412,7 +665,7 @@ class PDFEngine:
             return self._render_page_rgb(pages[0], z)
 
         zkey = round(z, 4)
-        key = (tuple(pages), zkey, "spread-rgb")
+        key = (tuple(pages), zkey, "spread-rgb", self._appearance_key())
         hit = self._cache_get(key)
         if hit is not None:
             return (hit["w"], hit["h"], hit["rgb"])
@@ -422,7 +675,7 @@ class PDFEngine:
             return self._render_page_rgb(pages[0], z)
         w, h, data = rgb
         self._cache_put(key, {"w": w, "h": h, "rgb": data})
-        return rgb
+        return (w, h, data)
 
     def render_view(
         self, page: Optional[int] = None, zoom: Optional[float] = None

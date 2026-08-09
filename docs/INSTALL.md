@@ -35,11 +35,18 @@ Inno Setup is auto-downloaded into `tools/InnoSetup` when missing (CI does this 
 Full APK builds need Buildozer + Android SDK/NDK (Linux/macOS CI or WSL):
 
 ```bash
-pip install buildozer
+# Install Python helpers + env scripts (Windows OK; real APK on Linux/WSL/CI)
+python scripts/setup_android_toolchain.py
+
+# Linux / WSL / CI:
+source tools/android/env.sh   # or tools/android/env.ps1 on PowerShell
 python build_android.py
 ```
 
-Without Buildozer, `build_android.py` still stages the mobile source zip and
+Release workflow (`ubuntu-latest`) installs cmdline-tools + NDK and runs the same
+script so the next tag can ship `RemedyPDF-*-android.apk` when Buildozer succeeds.
+
+Without a full SDK, `build_android.py` still stages the mobile source zip and
 `ANDROID_BUILD.md` so the release always has an Android artifact.
 
 ## Auto-update

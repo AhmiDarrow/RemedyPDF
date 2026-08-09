@@ -17,7 +17,10 @@ A sleek, fast multi-format document viewer and editor with Remedy themes, both-s
 - **Zoom reset** — Toolbar **Reset** or **Ctrl+0**
 - **Book mode** — **Both sides** two-page spreads (0+1, 2+3, …) via Ctrl+B
 - **Edit** — **Double-click** (PC) or **hold / long-press** (mobile) to add text at a point
-- **Themes** — Dark / light Remedy QSS (`Ctrl+Shift+T`)
+- **8 visibility themes** — Dark, Light, High contrast, Sepia, Night OLED, Midnight, Soft paper, Slate (`Ctrl+Shift+T`)
+- **Page appearance** — Invert / sepia / grayscale / warm / cool filters + brightness & contrast (view-only)
+- **UI Scale** — Chrome font 90–150% independent of page zoom
+- **Fit modes** — Width / page / height (`Ctrl+1/2/3`) + full screen (`F11`)
 - **Mobile / APK** — Larger touch targets, flick scroll, hold-to-edit, mobile default zoom
 - **Brand assets** — Window icon (`resources/icon.ico` / `icon.png`) + About logo (`logo_ui.png`)
 - **About + Auto-Update** — SecretSticky-style About (hello, platform tags, Check for updates) against GitHub Releases + `latest.json`
@@ -66,7 +69,14 @@ python scripts/_verify_brand.py
 | Fine zoom 1% | Ctrl+Scroll, Ctrl+Shift+/- |
 | Reset zoom | Ctrl+0 / toolbar Reset |
 | Book mode (both sides) | Ctrl+B |
-| Theme toggle | Ctrl+Shift+T |
+| Fit width / page / height | Ctrl+1 / Ctrl+2 / Ctrl+3 |
+| Full screen | F11 |
+| Cycle theme (8) | Ctrl+Shift+T |
+| High contrast / Sepia / Night | Ctrl+Shift+H / S / N |
+| Invert page | Ctrl+Shift+I |
+| Brightness ± | Ctrl+Shift+↑ / ↓ |
+| Contrast ± | Ctrl+Alt+↑ / ↓ |
+| Reset page appearance | Ctrl+Shift+0 |
 | Find | Ctrl+F |
 | Pages | ← → PgUp PgDown Space |
 | Edit text at point | Double-click (PC) / Hold (mobile) |
@@ -118,9 +128,10 @@ See [docs/INSTALL.md](docs/INSTALL.md).
 ### Android APK
 
 ```bash
+python scripts/setup_android_toolchain.py   # buildozer/cython + tools/android/*
 python build_android.py
-# With Buildozer: bin/*.apk → dist/RemedyPDF-<ver>-android.apk
-# Without:        dist/RemedyPDF-<ver>-android-src.zip + ANDROID_BUILD.md
+# With Buildozer+SDK (Linux/WSL/CI): → dist/RemedyPDF-<ver>-android.apk
+# Without:                           → dist/RemedyPDF-<ver>-android-src.zip
 ```
 
 Touch/APK notes:

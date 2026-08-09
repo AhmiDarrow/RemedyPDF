@@ -222,6 +222,22 @@ class PDFCanvas(QLabel):
         self._page_size = (float(width_pts), float(height_pts))
         self._zoom = max(0.01, float(zoom))
 
+    def clear_page(self, message: str = "Open a PDF to begin") -> None:
+        self._pixmap_size = (0, 0)
+        self._page_size = (0.0, 0.0)
+        self.setPixmap(QPixmap())
+        # Release fixed spread size so empty state can fill the scroll area
+        self.setMinimumSize(280, 360)
+        self.setMaximumSize(16777215, 16777215)
+        self.setProperty("empty", True)
+        self.setText(message)
+        # Force stylesheet re-eval so canvas_text color follows active theme
+        try:
+            self.style().unpolish(self)
+            self.style().polish(self)
+        except Exception:  # noqa: BLE001
+            pass
+
     def show_page(self, pixmap: QPixmap) -> None:
         """Show a rendered page or full book-spread pixmap.
 
@@ -231,6 +247,7 @@ class PDFCanvas(QLabel):
         if pixmap is None or pixmap.isNull():
             self.clear_page("Unable to render page")
             return
+        self.setProperty("empty", False)
         self.setText("")  # clear placeholder so pixmap paints fully
         self._pixmap_size = (pixmap.width(), pixmap.height())
         # Never scale-to-fit the label itself — that collapses book spreads
@@ -243,15 +260,6 @@ class PDFCanvas(QLabel):
         self.setMaximumSize(size)
         self.resize(size)
         self.updateGeometry()
-
-    def clear_page(self, message: str = "Open a PDF to begin") -> None:
-        self._pixmap_size = (0, 0)
-        self._page_size = (0.0, 0.0)
-        self.setPixmap(QPixmap())
-        # Release fixed spread size so empty state can fill the scroll area
-        self.setMinimumSize(280, 360)
-        self.setMaximumSize(16777215, 16777215)
-        self.setText(message)
 
     def _map_widget_to_pdf(self, pos: QPoint) -> Optional[Tuple[float, float]]:
         """Map a widget click to PDF point coordinates, or None if outside page."""

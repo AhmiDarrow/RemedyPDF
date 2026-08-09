@@ -46,12 +46,22 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.2.0"
+        VERSION = "1.3.2"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
 try:
-    from ui.theme import DEFAULT_THEME, apply_theme, toggle_theme
+    from ui.theme import (
+        DEFAULT_THEME,
+        THEME_ORDER,
+        apply_theme,
+        list_page_filters,
+        list_themes,
+        page_colors_for_theme,
+        page_filter_label,
+        theme_label,
+        toggle_theme,
+    )
     from ui.widgets import PDFCanvas, PageNavigator, SearchBar
     from ui.about import AboutDialog
     from utils.brand import apply_app_icon, resources_dir
@@ -65,7 +75,17 @@ try:
     )
     from utils.updater import check_for_update, format_update_message, open_url
 except ImportError:  # script-style imports
-    from src.ui.theme import DEFAULT_THEME, apply_theme, toggle_theme  # type: ignore
+    from src.ui.theme import (  # type: ignore
+        DEFAULT_THEME,
+        THEME_ORDER,
+        apply_theme,
+        list_page_filters,
+        list_themes,
+        page_colors_for_theme,
+        page_filter_label,
+        theme_label,
+        toggle_theme,
+    )
     from src.ui.widgets import PDFCanvas, PageNavigator, SearchBar  # type: ignore
     from src.ui.about import AboutDialog  # type: ignore
     from src.utils.brand import apply_app_icon, resources_dir  # type: ignore
@@ -100,6 +120,7 @@ class RemedyPDFApp(QMainWindow):
         self.engine.book_cover_alone = False
         self.current_path: Optional[str] = None
         self._theme = DEFAULT_THEME
+        self._ui_scale: float = 1.15 if self._mobile else 1.0
         self._search_hits: List[Tuple[int, Tuple[float, float, float, float]]] = []
         self._search_index = -1
         self._search_fresh: bool = False  # Enter after find: don't skip first hit
@@ -113,6 +134,8 @@ class RemedyPDFApp(QMainWindow):
         self.scroll.viewport().installEventFilter(self)
         self.canvas.installEventFilter(self)
         apply_theme(QApplication.instance() or self, self._theme, mobile=self._mobile or self._touch)
+        # Match document ink/paper to theme text colors from the start
+        self._apply_theme_page_colors(self._theme)
         self._update_status()
 
     # ----- UI construction -----
@@ -231,11 +254,30 @@ class RemedyPDFApp(QMainWindow):
         fine_out.triggered.connect(lambda: self.adjust_zoom(-PDFEngine.ZOOM_FINE))
         view_menu.addAction(fine_out)
 
-        fit_act = QAction("&Reset Zoom", self)
-        fit_act.setShortcut("Ctrl+0")
-        fit_act.setToolTip("Reset zoom to default (Ctrl+0)")
-        fit_act.triggered.connect(self.reset_zoom)
-        view_menu.addAction(fit_act)
+        reset_act = QAction("&Reset Zoom", self)
+        reset_act.setShortcut("Ctrl+0")
+        reset_act.setToolTip("Reset zoom to default (Ctrl+0)")
+        reset_act.triggered.connect(self.reset_zoom)
+        view_menu.addAction(reset_act)
+
+        view_menu.addSeparator()
+        fit_w = QAction("Fit &Width", self)
+        fit_w.setShortcut("Ctrl+1")
+        fit_w.setToolTip("Scale page/spread to viewport width")
+        fit_w.triggered.connect(lambda: self.fit_view("width"))
+        view_menu.addAction(fit_w)
+
+        fit_p = QAction("Fit &Page", self)
+        fit_p.setShortcut("Ctrl+2")
+        fit_p.setToolTip("Scale page/spread to fit viewport")
+        fit_p.triggered.connect(lambda: self.fit_view("page"))
+        view_menu.addAction(fit_p)
+
+        fit_h = QAction("Fit &Height", self)
+        fit_h.setShortcut("Ctrl+3")
+        fit_h.setToolTip("Scale page/spread to viewport height")
+        fit_h.triggered.connect(lambda: self.fit_view("height"))
+        view_menu.addAction(fit_h)
 
         view_menu.addSeparator()
         self.book_act = QAction("&Book Mode", self)
@@ -245,11 +287,99 @@ class RemedyPDFApp(QMainWindow):
         self.book_act.triggered.connect(self.toggle_book_mode)
         view_menu.addAction(self.book_act)
 
+        self.fullscreen_act = QAction("&Full Screen", self)
+        self.fullscreen_act.setCheckable(True)
+        self.fullscreen_act.setShortcut("F11")
+        self.fullscreen_act.setToolTip("Toggle full screen (F11 / Esc)")
+        self.fullscreen_act.triggered.connect(self.toggle_fullscreen)
+        view_menu.addAction(self.fullscreen_act)
+
         view_menu.addSeparator()
-        theme_act = QAction("Toggle &Theme", self)
+        # Visibility / reading themes
+        theme_menu = view_menu.addMenu("Visibility &Theme")
+        self._theme_actions = {}
+        for key in THEME_ORDER:
+            act = QAction(theme_label(key), self)
+            act.setCheckable(True)
+            act.setChecked(key == self._theme)
+            act.triggered.connect(lambda checked=False, k=key: self.set_theme(k))
+            theme_menu.addAction(act)
+            self._theme_actions[key] = act
+
+        theme_act = QAction("Cycle &Theme", self)
         theme_act.setShortcut("Ctrl+Shift+T")
+        theme_act.setToolTip("Cycle dark / light / high-contrast / sepia / night")
         theme_act.triggered.connect(self._toggle_theme)
         view_menu.addAction(theme_act)
+
+        hc_act = QAction("&High Contrast", self)
+        hc_act.setShortcut("Ctrl+Shift+H")
+        hc_act.triggered.connect(lambda: self.set_theme("high_contrast"))
+        view_menu.addAction(hc_act)
+
+        sepia_act = QAction("&Sepia (paper)", self)
+        sepia_act.setShortcut("Ctrl+Shift+S")
+        sepia_act.triggered.connect(lambda: self.set_theme("sepia"))
+        view_menu.addAction(sepia_act)
+
+        night_act = QAction("&Night (OLED)", self)
+        night_act.setShortcut("Ctrl+Shift+N")
+        night_act.triggered.connect(lambda: self.set_theme("night"))
+        view_menu.addAction(night_act)
+
+        view_menu.addSeparator()
+        # Page appearance filters (document pixels — independent of chrome theme)
+        filter_menu = view_menu.addMenu("Page &Appearance")
+        self._filter_actions = {}
+        for key in PDFEngine.FILTER_NAMES:
+            act = QAction(page_filter_label(key), self)
+            act.setCheckable(True)
+            act.setChecked(key == self.engine.page_filter)
+            act.triggered.connect(lambda checked=False, k=key: self.set_page_filter(k))
+            filter_menu.addAction(act)
+            self._filter_actions[key] = act
+
+        invert_act = QAction("&Invert Page", self)
+        invert_act.setShortcut("Ctrl+Shift+I")
+        invert_act.setToolTip("Dark-paper invert of page pixels (Ctrl+Shift+I)")
+        invert_act.triggered.connect(lambda: self.toggle_page_filter("invert"))
+        view_menu.addAction(invert_act)
+
+        filter_menu.addSeparator()
+        bright_up = QAction("Brighter page", self)
+        bright_up.setShortcut("Ctrl+Shift+Up")
+        bright_up.triggered.connect(lambda: self.adjust_brightness(0.05))
+        filter_menu.addAction(bright_up)
+        bright_dn = QAction("Dimmer page", self)
+        bright_dn.setShortcut("Ctrl+Shift+Down")
+        bright_dn.triggered.connect(lambda: self.adjust_brightness(-0.05))
+        filter_menu.addAction(bright_dn)
+        contrast_up = QAction("More contrast", self)
+        contrast_up.setShortcut("Ctrl+Alt+Up")
+        contrast_up.triggered.connect(lambda: self.adjust_contrast(0.05))
+        filter_menu.addAction(contrast_up)
+        contrast_dn = QAction("Less contrast", self)
+        contrast_dn.setShortcut("Ctrl+Alt+Down")
+        contrast_dn.triggered.connect(lambda: self.adjust_contrast(-0.05))
+        filter_menu.addAction(contrast_dn)
+        reset_app = QAction("Reset page appearance", self)
+        reset_app.setShortcut("Ctrl+Shift+0")
+        reset_app.triggered.connect(self.reset_page_appearance)
+        filter_menu.addAction(reset_app)
+
+        view_menu.addSeparator()
+        # Chrome UI scale for readability
+        scale_menu = view_menu.addMenu("UI &Scale")
+        for label, scale in (
+            ("Compact (90%)", 0.9),
+            ("Default (100%)", 1.0),
+            ("Comfortable (115%)", 1.15),
+            ("Large (130%)", 1.3),
+            ("Extra large (150%)", 1.5),
+        ):
+            act = QAction(label, self)
+            act.triggered.connect(lambda checked=False, s=scale: self.set_ui_scale(s))
+            scale_menu.addAction(act)
 
         go_menu = menubar.addMenu("&Go")
         prev_act = QAction("&Previous Page", self)
@@ -341,6 +471,16 @@ class RemedyPDFApp(QMainWindow):
         reset_zoom_btn.setToolTip("Reset zoom to default (Ctrl+0)")
         reset_zoom_btn.triggered.connect(self.reset_zoom)
         tb.addAction(reset_zoom_btn)
+
+        fit_w_btn = QAction("Fit W", self)
+        fit_w_btn.setToolTip("Fit width (Ctrl+1)")
+        fit_w_btn.triggered.connect(lambda: self.fit_view("width"))
+        tb.addAction(fit_w_btn)
+
+        fit_p_btn = QAction("Fit", self)
+        fit_p_btn.setToolTip("Fit page (Ctrl+2)")
+        fit_p_btn.triggered.connect(lambda: self.fit_view("page"))
+        tb.addAction(fit_p_btn)
         tb.addSeparator()
 
         self.book_tb = QAction("Book", self)
@@ -348,6 +488,11 @@ class RemedyPDFApp(QMainWindow):
         self.book_tb.setToolTip("Book mode — both sides / two-page spread (Ctrl+B)")
         self.book_tb.triggered.connect(self.toggle_book_mode)
         tb.addAction(self.book_tb)
+
+        theme_btn = QAction("Theme", self)
+        theme_btn.setToolTip("Cycle visibility theme (Ctrl+Shift+T)")
+        theme_btn.triggered.connect(self._toggle_theme)
+        tb.addAction(theme_btn)
 
         find_btn = QAction("Find", self)
         find_btn.setToolTip("Find (Ctrl+F)")
@@ -378,6 +523,19 @@ class RemedyPDFApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift++"), self, activated=lambda: self.adjust_zoom(PDFEngine.ZOOM_FINE))
         # Reset zoom
         QShortcut(QKeySequence("Ctrl+0"), self, activated=self.reset_zoom)
+        # Fit modes
+        QShortcut(QKeySequence("Ctrl+1"), self, activated=lambda: self.fit_view("width"))
+        QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.fit_view("page"))
+        QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self.fit_view("height"))
+        # Full screen
+        QShortcut(QKeySequence("F11"), self, activated=self.toggle_fullscreen)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self._exit_fullscreen_if_needed)
+        QShortcut(QKeySequence("Ctrl+Shift+I"), self, activated=lambda: self.toggle_page_filter("invert"))
+        QShortcut(QKeySequence("Ctrl+Shift+0"), self, activated=self.reset_page_appearance)
+        QShortcut(QKeySequence("Ctrl+Shift+Up"), self, activated=lambda: self.adjust_brightness(0.05))
+        QShortcut(QKeySequence("Ctrl+Shift+Down"), self, activated=lambda: self.adjust_brightness(-0.05))
+        QShortcut(QKeySequence("Ctrl+Alt+Up"), self, activated=lambda: self.adjust_contrast(0.05))
+        QShortcut(QKeySequence("Ctrl+Alt+Down"), self, activated=lambda: self.adjust_contrast(-0.05))
 
         # Wheel fine-zoom: wheelEvent + eventFilter (scroll area steals wheel)
 
@@ -706,35 +864,165 @@ class RemedyPDFApp(QMainWindow):
                 self.statusBar().showMessage("Book mode — both sides when available", 2500)
 
     def _fit_book_spread_in_view(self) -> None:
-        """Shrink zoom so the full left+right spread fits the scroll viewport width."""
+        """Shrink zoom so the full left+right spread fits the scroll viewport."""
         if not self.engine.is_open or not self.engine.book_mode:
             return
+        self.fit_view("page", announce=False)
+
+    def _viewport_size(self) -> Tuple[int, int]:
         try:
             vp = self.scroll.viewport()
-            avail_w = max(200, vp.width() - 24)
-            avail_h = max(200, vp.height() - 24)
+            return (max(200, vp.width()), max(200, vp.height()))
         except Exception:  # noqa: BLE001
-            return
-        vw, vh = self.engine.get_view_size()
-        if vw <= 1 or vh <= 1:
-            return
-        # Target zoom so both pages fit; never blow past current zoom upward here
-        fit_w = avail_w / vw
-        fit_h = avail_h / vh
-        target = min(fit_w, fit_h, self.engine.zoom)
-        # Keep readable floor
-        target = max(PDFEngine.ZOOM_MIN, min(target, PDFEngine.ZOOM_MAX))
-        if abs(target - self.engine.zoom) > 0.005:
-            self.engine.set_zoom(target)
+            return (800, 600)
 
-    def _toggle_theme(self) -> None:
+    def fit_view(self, mode: str = "width", *, announce: bool = True) -> None:
+        """Fit current page/spread to viewport (width | height | page)."""
+        if not self.engine.is_open:
+            return
+        aw, ah = self._viewport_size()
+        self.engine.fit_zoom_for_viewport(aw, ah, mode=mode)
+        self.render_current()
+        self._update_status()
+        if announce:
+            label = {"width": "width", "height": "height", "page": "page"}.get(
+                (mode or "width").lower(), mode
+            )
+            zpct = int(round(self.engine.zoom * 100))
+            self.statusBar().showMessage(f"Fit {label} — {zpct}%", 2000)
+
+    def toggle_fullscreen(self, checked: Optional[bool] = None) -> None:
+        """Toggle full-screen reading mode (F11)."""
+        going_full = (not self.isFullScreen()) if checked is None else bool(checked)
+        if going_full:
+            self.showFullScreen()
+        else:
+            self.showNormal()
+        if getattr(self, "fullscreen_act", None) is not None:
+            self.fullscreen_act.blockSignals(True)
+            self.fullscreen_act.setChecked(self.isFullScreen())
+            self.fullscreen_act.blockSignals(False)
+        self.statusBar().showMessage(
+            "Full screen (Esc or F11 to exit)" if self.isFullScreen() else "Windowed",
+            2000,
+        )
+
+    def _exit_fullscreen_if_needed(self) -> None:
+        if self.isFullScreen():
+            self.toggle_fullscreen(False)
+
+    def set_theme(self, name: str) -> None:
+        """Apply a named visibility theme — chrome text + document ink/paper."""
         app = QApplication.instance()
         if app is None:
             return
-        self._theme = toggle_theme(self._theme)
-        # Keep mobile/APK touch QSS when toggling themes
+        key = (name or DEFAULT_THEME).lower()
+        if key not in THEME_ORDER:
+            key = DEFAULT_THEME
+        self._theme = apply_theme(app, key, mobile=self._mobile or self._touch)
+        # Document pixels follow theme text/paper colors (view-only)
+        self._apply_theme_page_colors(self._theme)
+        # Sync checkable theme menu items
+        for k, act in getattr(self, "_theme_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(k == self._theme)
+            act.blockSignals(False)
+        # Refresh open page so ink/paper recolor is visible immediately
+        if self.engine.is_open:
+            self.render_current()
+        else:
+            # Empty-state placeholder text uses canvas_text from stylesheet
+            try:
+                self.canvas.style().unpolish(self.canvas)
+                self.canvas.style().polish(self.canvas)
+                self.canvas.update()
+            except Exception:  # noqa: BLE001
+                pass
+        self.statusBar().showMessage(
+            f"Theme: {theme_label(self._theme)} (text + page colors)",
+            2000,
+        )
+
+    def _apply_theme_page_colors(self, theme_name: str) -> None:
+        """Push theme ink/paper into the engine so page text matches chrome."""
+        colors = page_colors_for_theme(theme_name)
+        # Light theme keeps near-source look; still set explicit ink/paper for consistency
+        self.engine.set_theme_page_colors(
+            ink=colors["ink"],
+            paper=colors["paper"],
+            enabled=True,
+        )
+
+    def _toggle_theme(self) -> None:
+        nxt = toggle_theme(self._theme)
+        self.set_theme(nxt)
+
+    def set_page_filter(self, name: str) -> None:
+        """Apply a view-only page pixel filter (invert/sepia/…)."""
+        key = self.engine.set_page_filter(name)
+        for k, act in getattr(self, "_filter_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(k == key)
+            act.blockSignals(False)
+        if self.engine.is_open:
+            self.render_current()
+        self._update_status()
+        self.statusBar().showMessage(f"Page: {page_filter_label(key)}", 2000)
+
+    def toggle_page_filter(self, name: str) -> None:
+        """Toggle a named filter on/off (e.g. invert)."""
+        cur = self.engine.page_filter
+        target = (name or "none").lower()
+        self.set_page_filter("none" if cur == target else target)
+
+    def adjust_brightness(self, delta: float) -> None:
+        val = self.engine.adjust_brightness(delta)
+        if self.engine.is_open:
+            self.render_current()
+        pct = int(round(val * 100))
+        self.statusBar().showMessage(f"Brightness {pct}%", 1500)
+        self._update_status()
+
+    def adjust_contrast(self, delta: float) -> None:
+        val = self.engine.adjust_contrast(delta)
+        if self.engine.is_open:
+            self.render_current()
+        pct = int(round(val * 100))
+        self.statusBar().showMessage(f"Contrast {pct}%", 1500)
+        self._update_status()
+
+    def reset_page_appearance(self) -> None:
+        self.engine.reset_page_appearance()
+        for k, act in getattr(self, "_filter_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(k == "none")
+            act.blockSignals(False)
+        if self.engine.is_open:
+            self.render_current()
+        self.statusBar().showMessage("Page appearance reset", 2000)
+        self._update_status()
+
+    def set_ui_scale(self, scale: float) -> None:
+        """Scale chrome font size for readability (does not change page zoom)."""
+        self._ui_scale = max(0.85, min(1.75, float(scale)))
+        app = QApplication.instance()
+        if app is None:
+            return
+        # Re-apply theme then bump base font
         apply_theme(app, self._theme, mobile=self._mobile or self._touch)
-        self.statusBar().showMessage(f"Theme: {self._theme}", 2000)
+        try:
+            from PyQt5.QtGui import QFont
+
+            font = app.font()
+            base = 13.0 * self._ui_scale
+            if self._mobile or self._touch:
+                base = max(base, 14.0 * self._ui_scale)
+            font.setPointSizeF(base)
+            app.setFont(font)
+        except Exception:  # noqa: BLE001
+            pass
+        pct = int(round(self._ui_scale * 100))
+        self.statusBar().showMessage(f"UI scale {pct}%", 2000)
 
     # ----- search -----
 
@@ -875,9 +1163,18 @@ class RemedyPDFApp(QMainWindow):
             page_label = f"Pages {spread[0] + 1}–{spread[1] + 1}/{total}"
         else:
             page_label = f"Page {page}/{total}"
+        filt = self.engine.page_filter
+        filt_bit = "" if filt == "none" else f"  |  {page_filter_label(filt)}"
+        b = self.engine.brightness
+        c = self.engine.contrast
+        bc_bit = ""
+        if abs(b - 1.0) > 0.01 or abs(c - 1.0) > 0.01:
+            bc_bit = f"  |  B{int(round(b * 100))}/C{int(round(c * 100))}"
+        theme_bit = f"  |  {theme_label(self._theme)}"
         self.setWindowTitle(f"{name}{dirty} — {APP_NAME}")
         self.statusBar().showMessage(
             f"{name}{dirty}  |  {fmt}  |  {page_label}  |  Zoom {zpct}%  |  {mode}"
+            f"{filt_bit}{bc_bit}{theme_bit}"
         )
 
     def show_about(self) -> None:
@@ -926,7 +1223,15 @@ class RemedyPDFApp(QMainWindow):
             "Ctrl+0 / toolbar Reset — reset zoom<br><br>"
             "<b>View</b><br>"
             "Ctrl+B — Book mode (both sides)<br>"
-            "Ctrl+Shift+T — toggle theme<br>"
+            "Ctrl+1 / 2 / 3 — fit width / page / height<br>"
+            "F11 — full screen<br>"
+            "Ctrl+Shift+T — cycle theme (8 themes)<br>"
+            "Ctrl+Shift+H / S / N — high contrast / sepia / night<br>"
+            "Ctrl+Shift+I — invert page pixels<br>"
+            "Ctrl+Shift+↑/↓ — page brightness<br>"
+            "Ctrl+Alt+↑/↓ — page contrast<br>"
+            "Ctrl+Shift+0 — reset page appearance<br>"
+            "View → UI Scale — chrome font size<br>"
             "Ctrl+F — find<br><br>"
             "<b>Edit</b><br>"
             "Double-click page (PC) — add text at point<br>"

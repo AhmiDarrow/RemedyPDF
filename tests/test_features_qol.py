@@ -10,13 +10,26 @@ pytest.importorskip("PyQt5")
 
 
 def test_theme_toggle_and_stylesheet():
-    from ui.theme import DEFAULT_THEME, apply_theme, build_stylesheet, toggle_theme
+    from ui.theme import (
+        DEFAULT_THEME,
+        THEME_ORDER,
+        apply_theme,
+        build_stylesheet,
+        toggle_theme,
+    )
 
     assert toggle_theme("dark") == "light"
-    assert toggle_theme("light") == "dark"
+    assert toggle_theme("light") == "high_contrast"
+    # Full cycle wraps last → first (order grew beyond night)
+    assert toggle_theme(THEME_ORDER[-1]) == THEME_ORDER[0]
+    assert "sepia" in THEME_ORDER
+    assert "midnight" in THEME_ORDER
+    assert "paper" in THEME_ORDER
+    assert "slate" in THEME_ORDER
+    assert len(THEME_ORDER) >= 8
     css = build_stylesheet("dark")
     assert "QMainWindow" in css
-    assert DEFAULT_THEME in ("dark", "light")
+    assert DEFAULT_THEME in THEME_ORDER
     # apply_theme should not raise on QApplication
     from PyQt5.QtWidgets import QApplication
     import sys
@@ -24,6 +37,8 @@ def test_theme_toggle_and_stylesheet():
     app = QApplication.instance() or QApplication(sys.argv[:1])
     name = apply_theme(app, "dark")
     assert name == "dark"
+    assert apply_theme(app, "high_contrast") == "high_contrast"
+    assert apply_theme(app, "midnight") == "midnight"
 
 
 def test_create_app_has_book_and_fine_zoom():
@@ -197,12 +212,15 @@ def test_version_aligned():
 
 
 def test_theme_toggle_keeps_mobile_flag():
-    """_toggle_theme must pass mobile= so APK QSS is not dropped."""
+    """Theme apply path must pass mobile= so APK QSS is not dropped."""
     import inspect
     from core import app as app_mod
 
-    src = inspect.getsource(app_mod.RemedyPDFApp._toggle_theme)
-    assert "mobile=" in src
+    # set_theme is the single apply path; _toggle_theme delegates to it
+    set_src = inspect.getsource(app_mod.RemedyPDFApp.set_theme)
+    assert "mobile=" in set_src
+    toggle_src = inspect.getsource(app_mod.RemedyPDFApp._toggle_theme)
+    assert "set_theme" in toggle_src
 
 
 def test_app_has_wheel_event_filter_and_dirty_flag():

@@ -164,6 +164,8 @@ class AboutDialog(QDialog):
             "Windows installer",
             "Android APK",
             "PDF · EPUB",
+            "Fit · Fullscreen",
+            "HC · Sepia · Night",
             "Auto-update",
             "MIT",
         ):

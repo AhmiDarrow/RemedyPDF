@@ -113,10 +113,41 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Package Android (APK if toolchain, else src zip)
+      - name: Install Android cmdline tools + Buildozer deps
         run: |
+          set -e
+          sudo apt-get update -y
+          sudo apt-get install -y openjdk-17-jdk unzip wget libffi-dev libssl-dev autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+          python -m pip install --upgrade pip
+          pip install buildozer cython virtualenv
+          # Android command-line tools into project-local tools/ (writable)
+          SDK_ROOT="${GITHUB_WORKSPACE}/tools/android-sdk"
+          mkdir -p "$SDK_ROOT/cmdline-tools"
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip
+          unzip -q cmdtools.zip -d "$SDK_ROOT/cmdline-tools"
+          # Normalize layout: cmdline-tools/latest
+          if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/tmp/sdk-lic.txt || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" \
+            "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
+
+      - name: Package Android (APK if toolchain, else src zip)
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          REMEDYPDF_MOBILE: "1"
+        run: |
+          set -e
           python -m pip install --upgrade pip
           pip install -r requirements.txt || true
+          pip install buildozer cython virtualenv || true
           python build_android.py
           mkdir -p dist/android
           VER=$(python -c "import pathlib,re; t=pathlib.Path('src/__init__.py').read_text(encoding='utf-8'); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)', t).group(1))")
@@ -129,6 +160,12 @@ jobs:
             exit 1
           fi
           ls -la dist/android
+          # Prefer real APK when present
+          if ls dist/android/*.apk >/dev/null 2>&1; then
+            echo "OK real APK present"
+          else
+            echo "WARN: APK not produced — src zip only (Buildozer may need longer first run)"
+          fi
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
