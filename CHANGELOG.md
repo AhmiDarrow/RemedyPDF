@@ -2,6 +2,14 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.3] — 2026-08-09
+
+### Fixed — Android CI / APK path
+- Release `build-android` job no longer installs removed Ubuntu 24.04 packages (`libtinfo5` / `libncurses5`) that caused apt exit 100
+- SDK install is best-effort (`continue-on-error`); package step **always** emits `*-android-src.zip`
+- `build_android.py` CLI: `--zip-only` / `--prefer-apk`; relative icon paths in `buildozer.spec` for Linux CI
+- Longer Android job timeout (180m) for first Buildozer NDK compile
+
 ## [1.3.2] — 2026-08-09
 
 ### Fixed — theme text colors

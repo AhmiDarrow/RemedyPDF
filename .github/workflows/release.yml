@@ -103,6 +103,7 @@ jobs:
     name: Build Android package
     needs: test-gate
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -113,58 +114,97 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install Android cmdline tools + Buildozer deps
+      - name: Install base deps (Ubuntu 24.04 safe)
         run: |
-          set -e
+          set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y openjdk-17-jdk unzip wget libffi-dev libssl-dev autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+          # NOTE: libtinfo5 / libncurses5 were removed on Ubuntu 24.04 — do not install them
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            openjdk-17-jdk unzip wget curl git zip \
+            libffi-dev libssl-dev autoconf automake libtool pkg-config \
+            zlib1g-dev libncurses-dev cmake build-essential \
+            ccache libltdl-dev
+          java -version
           python -m pip install --upgrade pip
           pip install buildozer cython virtualenv
-          # Android command-line tools into project-local tools/ (writable)
+
+      - name: Install Android SDK + NDK (best-effort)
+        id: sdk
+        continue-on-error: true
+        run: |
+          set -euo pipefail
           SDK_ROOT="${GITHUB_WORKSPACE}/tools/android-sdk"
           mkdir -p "$SDK_ROOT/cmdline-tools"
           cd /tmp
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip
+          # Pin a known commandlinetools zip; fall back to latest path if needed
+          URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          curl -fsSL -o cmdtools.zip "$URL"
+          rm -rf "$SDK_ROOT/cmdline-tools"/*
           unzip -q cmdtools.zip -d "$SDK_ROOT/cmdline-tools"
-          # Normalize layout: cmdline-tools/latest
           if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
             mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          elif [ ! -d "$SDK_ROOT/cmdline-tools/latest" ]; then
+            # Some zips unpack flat — normalize
+            mkdir -p "$SDK_ROOT/cmdline-tools/latest"
+            mv "$SDK_ROOT/cmdline-tools"/* "$SDK_ROOT/cmdline-tools/latest/" 2>/dev/null || true
           fi
+          test -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "$SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/tmp/sdk-lic.txt || true
+          export ANDROID_HOME="$SDK_ROOT"
+          export ANDROID_SDK_ROOT="$SDK_ROOT"
+          yes 2>/dev/null | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/tmp/sdk-lic.txt || true
           "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" \
-            "platform-tools" "platforms;android-33" "build-tools;33.0.2" "ndk;25.2.9519653"
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2" \
+            "ndk;25.2.9519653"
+          echo "sdk_ok=true" >> "$GITHUB_OUTPUT"
+          ls -la "$SDK_ROOT" || true
 
-      - name: Package Android (APK if toolchain, else src zip)
+      - name: Package Android (APK if possible, always src zip)
         env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           REMEDYPDF_MOBILE: "1"
+          BUILDOZER_WARN_ON_ROOT: "0"
         run: |
-          set -e
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt || true
-          pip install buildozer cython virtualenv || true
-          python build_android.py
+          pip install buildozer cython virtualenv pillow pymupdf || true
+
+          # Always stage + zip first so release never lacks an Android asset
+          python build_android.py --zip-only
+
+          # Attempt real APK when SDK step succeeded
+          if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -d "${ANDROID_SDK_ROOT}" ]; then
+            echo "SDK present at $ANDROID_SDK_ROOT — attempting Buildozer APK"
+            python build_android.py --prefer-apk || echo "WARN: Buildozer APK failed; keeping src zip"
+          else
+            echo "WARN: ANDROID_SDK_ROOT missing — shipping android-src zip only"
+          fi
+
           mkdir -p dist/android
-          VER=$(python -c "import pathlib,re; t=pathlib.Path('src/__init__.py').read_text(encoding='utf-8'); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)', t).group(1))")
           shopt -s nullglob
-          for f in dist/RemedyPDF-*-android.apk; do cp "$f" dist/android/; done
-          for f in dist/RemedyPDF-*-android-src.zip; do cp "$f" dist/android/; done
+          for f in dist/RemedyPDF-*-android.apk bin/*.apk; do
+            [ -f "$f" ] || continue
+            cp "$f" dist/android/
+          done
+          for f in dist/RemedyPDF-*-android-src.zip; do
+            [ -f "$f" ] || continue
+            cp "$f" dist/android/
+          done
           if [ -z "$(ls -A dist/android 2>/dev/null)" ]; then
             echo "No android artifacts — fail" >&2
             ls -la dist || true
             exit 1
           fi
           ls -la dist/android
-          # Prefer real APK when present
           if ls dist/android/*.apk >/dev/null 2>&1; then
             echo "OK real APK present"
           else
-            echo "WARN: APK not produced — src zip only (Buildozer may need longer first run)"
+            echo "WARN: APK not produced — src zip only"
           fi
 
       - name: Upload Android artifacts

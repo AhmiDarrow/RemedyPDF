@@ -5,12 +5,18 @@ Primary path: Buildozer / python-for-android when the Android SDK+NDK toolchain
 is present. Always emits a release-ready staging tree and (when possible) a
 versioned APK under dist/.
 
+CLI:
+  python build_android.py              # zip + APK attempt if toolchain present
+  python build_android.py --zip-only   # stage + android-src.zip only
+  python build_android.py --prefer-apk # force Buildozer APK attempt
+
 Mobile UI is already wired (hold-to-edit, 44px targets, both-sides book mode)
 via src/utils/mobile.py — this script packages it.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -37,31 +43,36 @@ def _has_buildozer() -> bool:
 
 
 def _has_android_sdk() -> bool:
-    return bool(
-        os.environ.get("ANDROID_HOME")
-        or os.environ.get("ANDROID_SDK_ROOT")
-        or (Path.home() / "Android" / "Sdk").is_dir()
-    )
+    env_paths = [
+        os.environ.get("ANDROID_HOME", "").strip(),
+        os.environ.get("ANDROID_SDK_ROOT", "").strip(),
+    ]
+    for p in env_paths:
+        if p and Path(p).is_dir():
+            return True
+    return (Path.home() / "Android" / "Sdk").is_dir()
 
 
 def write_buildozer_spec(version: str | None = None) -> Path:
-    """Emit buildozer.spec tuned for RemedyPDF mobile."""
+    """Emit buildozer.spec tuned for RemedyPDF mobile (CI-friendly relative paths)."""
     ver = version or _version()
     spec = ROOT / "buildozer.spec"
-    icon = RES / "icon.png"
-    icon_line = f"icon.filename = {icon.as_posix()}" if icon.is_file() else ""
-    presplash = RES / "logo.png"
+    icon_rel = "resources/icon.png"
+    logo_rel = "resources/logo.png"
+    icon_line = f"icon.filename = {icon_rel}" if (RES / "icon.png").is_file() else ""
     presplash_line = (
-        f"presplash.filename = {presplash.as_posix()}" if presplash.is_file() else ""
+        f"presplash.filename = {logo_rel}" if (RES / "logo.png").is_file() else ""
     )
+    # source.include_exts keeps packaging lean; main_android.py is entry via
+    # p4a recipe default (main.py). We also ship main_android.py and a thin main.py.
     body = f"""[app]
 title = RemedyPDF
 package.name = remedypdf
 package.domain = com.ahmidarrow
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,ico,json,txt,md,ttf,kv
-source.include_patterns = src/*,resources/*
-source.exclude_dirs = tests,build,dist,.git,.venv,venv,tools,.remedy-build
+source.include_patterns = src/*,resources/*,main_android.py,main.py
+source.exclude_dirs = tests,build,dist,.git,.venv,venv,tools,.remedy-build,.buildozer,bin
 version = {ver}
 requirements = python3,pyjnius,android,pillow,pymupdf
 orientation = portrait
@@ -73,11 +84,10 @@ android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a
 android.release_artifact = apk
-{icon_line}
-{presplash_line}
-# Entry: thin launcher that forces mobile mode then starts the app
 android.entrypoint = org.kivy.android.PythonActivity
 p4a.branch = master
+{icon_line}
+{presplash_line}
 
 [buildozer]
 log_level = 2
@@ -111,6 +121,19 @@ if __name__ == "__main__":
 ''',
         encoding="utf-8",
     )
+    # p4a looks for main.py by default — mirror launcher
+    main_py = ROOT / "main.py"
+    if not main_py.is_file() or "REMEDYPDF_MOBILE" not in main_py.read_text(
+        encoding="utf-8", errors="ignore"
+    ):
+        main_py.write_text(
+            "#!/usr/bin/env python3\n"
+            '"""p4a entry — delegates to main_android."""\n'
+            "from main_android import main\n"
+            "if __name__ == '__main__':\n"
+            "    raise SystemExit(main())\n",
+            encoding="utf-8",
+        )
     return launch
 
 
@@ -124,12 +147,14 @@ def stage_android_tree(version: str | None = None) -> Path:
     shutil.copytree(SRC, stage / "src", dirs_exist_ok=True)
     if RES.is_dir():
         shutil.copytree(RES, stage / "resources", dirs_exist_ok=True)
-    for name in ("LICENSE", "README.md", "CHANGELOG.md"):
+    for name in ("LICENSE", "README.md", "CHANGELOG.md", "buildozer.spec"):
         src = ROOT / name
         if src.is_file():
             shutil.copy2(src, stage / name)
     _write_android_main()
     shutil.copy2(ROOT / "main_android.py", stage / "main_android.py")
+    if (ROOT / "main.py").is_file():
+        shutil.copy2(ROOT / "main.py", stage / "main.py")
     (stage / "REMEDYPDF_MOBILE").write_text("1\n", encoding="utf-8")
     print(f"OK android stage: {stage}")
     return stage
@@ -159,7 +184,6 @@ def _collect_apk(version: str) -> Path | None:
         "dist/*.apk",
     ):
         candidates.extend(ROOT.glob(pattern))
-    # Prefer release / unsigned newest
     apks = [p for p in candidates if p.is_file()]
     if not apks:
         return None
@@ -172,12 +196,33 @@ def _collect_apk(version: str) -> Path | None:
     return dest
 
 
-def build_android_apk() -> int:
+def _run_buildozer(timeout: int = 9000) -> int:
+    """Run buildozer android debug; return exit code."""
+    cmd = ["buildozer", "-v", "android", "debug"]
+    print("+", " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            text=True,
+            timeout=timeout,
+        )
+        return int(result.returncode)
+    except subprocess.TimeoutExpired:
+        print("ERROR: buildozer timed out", file=sys.stderr)
+        return 124
+    except FileNotFoundError:
+        print("ERROR: buildozer not found on PATH", file=sys.stderr)
+        return 127
+
+
+def build_android_apk(*, zip_only: bool = False, prefer_apk: bool = False) -> int:
     """Build Android APK via Buildozer when present; always stage + zip."""
     ver = _version()
     print(f"RemedyPDF — Android package v{ver}")
     print(f"  source: {SRC}")
     print("  mobile: hold-to-edit, 44px targets, book both-sides, zoom reset")
+    print(f"  flags: zip_only={zip_only} prefer_apk={prefer_apk}")
 
     if not SRC.is_dir():
         print("ERROR: src/ missing", file=sys.stderr)
@@ -189,20 +234,32 @@ def build_android_apk() -> int:
     _write_android_main()
     package_android_zip(ver)
 
-    if _has_buildozer() and _has_android_sdk():
-        print("  toolchain: buildozer + Android SDK detected")
-        result = subprocess.run(
-            ["buildozer", "android", "debug"],
-            cwd=str(ROOT),
-            text=True,
-        )
-        if result.returncode != 0:
-            print("Buildozer failed — src zip still published for sideload builds.")
-            return 0  # soft: zip is the fallback artifact
-        apk = _collect_apk(ver)
-        return 0 if apk else 0
+    if zip_only:
+        print("zip-only: skipping Buildozer APK attempt")
+        return 0
 
-    if _has_buildozer() and not _has_android_sdk():
+    has_bz = _has_buildozer()
+    has_sdk = _has_android_sdk()
+    print(f"  buildozer={has_bz} android_sdk={has_sdk}")
+
+    if prefer_apk or (has_bz and has_sdk):
+        if not has_bz:
+            print("prefer-apk requested but buildozer missing — zip only")
+            return 0
+        if not has_sdk:
+            print("prefer-apk requested but ANDROID_HOME/SDK missing — zip only")
+            return 0
+        print("  toolchain: buildozer + Android SDK detected — building APK")
+        code = _run_buildozer()
+        if code != 0:
+            print("Buildozer failed — src zip still published for sideload builds.")
+            return 0  # soft fail: zip is the fallback artifact
+        apk = _collect_apk(ver)
+        if apk is None:
+            print("WARN: Buildozer exited 0 but no APK found")
+        return 0
+
+    if has_bz and not has_sdk:
         print("Buildozer found but ANDROID_HOME / SDK missing.")
         print("  Set ANDROID_SDK_ROOT and re-run for a real APK.")
     else:
@@ -214,5 +271,21 @@ def build_android_apk() -> int:
     return 0
 
 
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="RemedyPDF Android packager")
+    p.add_argument(
+        "--zip-only",
+        action="store_true",
+        help="Only emit android-src.zip (no Buildozer)",
+    )
+    p.add_argument(
+        "--prefer-apk",
+        action="store_true",
+        help="Attempt Buildozer APK when SDK is present",
+    )
+    args = p.parse_args(argv)
+    return build_android_apk(zip_only=args.zip_only, prefer_apk=args.prefer_apk)
+
+
 if __name__ == "__main__":
-    raise SystemExit(build_android_apk())
+    raise SystemExit(main())
