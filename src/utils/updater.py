@@ -129,6 +129,10 @@ def check_for_update(
         )
         platforms = latest.get("platforms") if isinstance(latest.get("platforms"), dict) else {}
         if tag and compare_versions(tag, current_version) > 0:
+            # Prefer Windows installer URL from platforms when present
+            win = platforms.get("windows-x86_64") if isinstance(platforms, dict) else None
+            if isinstance(win, dict) and win.get("url"):
+                url = str(win.get("url") or url)
             return {
                 "tag": tag,
                 "name": latest.get("name") or tag,

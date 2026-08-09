@@ -8,14 +8,18 @@ pytest.importorskip("PyQt5")
 
 
 def test_about_dialog_builds():
-    from PyQt5.QtWidgets import QApplication
+    from PyQt5.QtWidgets import QApplication, QLabel
 
     from ui.about import AboutDialog
 
     app = QApplication.instance() or QApplication([])
-    dlg = AboutDialog(None, version="1.2.0")
+    dlg = AboutDialog(None, version="1.3.0")
     assert "About" in dlg.windowTitle()
-    assert dlg._version == "1.2.0"
+    assert dlg._version == "1.3.0"
+    tags = dlg.findChildren(QLabel, "aboutTag")
+    texts = {t.text() for t in tags}
+    assert "Windows installer" in texts
+    assert "Android APK" in texts
     # brand mark may or may not load pixmap; dialog must still construct
     dlg.close()
     app.processEvents()

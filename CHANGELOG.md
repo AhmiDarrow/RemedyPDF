@@ -2,6 +2,21 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.3.0] — 2026-08-09
+
+### Added
+- **Windows installer** — Inno Setup 6 (`installer/remedypdf.iss`) producing
+  `RemedyPDF-*-windows-setup.exe` with Start Menu + optional Desktop shortcuts
+- **Android release path** — `build_android.py` stages APK (Buildozer) or
+  `*-android-src.zip` + `ANDROID_BUILD.md` so every release has an Android asset
+- **About platform tags** — Windows installer · Android APK · PDF/EPUB · Auto-update · MIT
+- **Multi-platform `latest.json`** — `windows-x86_64` + `android-arm64` download URLs
+- Docs: `docs/INSTALL.md`
+
+### Fixed
+- Release workflow `GITHUB_TOKEN` wiring for `softprops/action-gh-release`
+- Release notes now point at Setup installer (not only onefile exe)
+
 ## [1.2.0] — 2026-03-22
 
 ### Added

@@ -24,6 +24,9 @@ _cleanup*
 _import_check.py
 _ship*
 _fix_*
+_retag*
+_tag_*
+$null
 _ship_check.py
 scripts/_ship*
 scripts/_fix*
@@ -31,8 +34,14 @@ scripts/_verify*
 _full_sources/
 _dump_out/
 .remedy-build/
+tools/InnoSetup/
+tools/innosetup*
 *.log
 *.pyc
+*.apk
+bin/
+.gradle/
+obj/
 
 # IDE / OS
 .idea/

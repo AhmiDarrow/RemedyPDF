@@ -31,7 +31,12 @@ Edit **only** `src/__init__.py` `__version__`. `setup.py` and the app read it fr
 
 1. Green CI on `main`
 2. `git tag vX.Y.Z && git push origin vX.Y.Z`
-3. Release workflow attaches `RemedyPDF.exe` + `latest.json`
+3. Release workflow attaches:
+   - `RemedyPDF-*-windows-setup.exe` (Inno installer)
+   - `RemedyPDF-*-windows.exe` / `RemedyPDF.exe` (portable)
+   - `RemedyPDF-*-android.apk` or `*-android-src.zip`
+   - `latest.json` (windows + android URLs)
+   - `icon.png`
 
 ## Code style
 

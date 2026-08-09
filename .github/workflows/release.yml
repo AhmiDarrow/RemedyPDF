@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (e.g. v1.2.0). Leave empty to use git ref."
+        description: "Release tag to build (e.g. v1.3.0). Leave empty to use git ref."
         required: false
         default: ""
 
@@ -42,7 +42,7 @@ jobs:
           pytest -q
 
   build-windows:
-    name: Build Windows + GitHub Release
+    name: Build Windows installer + portable
     needs: test-gate
     runs-on: windows-latest
     steps:
@@ -61,6 +61,95 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Build Windows (PyInstaller + Inno Setup)
+        run: python build_windows.py
+
+      - name: Stage Windows artifacts
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist/win
+          VER=$(python -c "import pathlib,re; t=pathlib.Path('src/__init__.py').read_text(encoding='utf-8'); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)', t).group(1))")
+          echo "version=$VER"
+          if [ -f dist/RemedyPDF.exe ]; then
+            cp dist/RemedyPDF.exe "dist/win/RemedyPDF-${VER}-windows.exe"
+            cp dist/RemedyPDF.exe dist/win/RemedyPDF.exe
+          else
+            echo "Missing dist/RemedyPDF.exe" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          # Prefer Inno installer; fall back to onefile named as setup
+          SETUP=""
+          for f in dist/RemedyPDF-*-windows-setup.exe dist/*Setup*.exe dist/*-setup.exe; do
+            if [ -f "$f" ]; then SETUP="$f"; break; fi
+          done
+          if [ -n "$SETUP" ]; then
+            cp "$SETUP" "dist/win/RemedyPDF-${VER}-windows-setup.exe"
+          else
+            echo "WARN: no Inno Setup output — shipping onefile as setup asset"
+            cp dist/RemedyPDF.exe "dist/win/RemedyPDF-${VER}-windows-setup.exe"
+          fi
+          ls -la dist/win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/win/*
+          if-no-files-found: error
+
+  build-android:
+    name: Build Android package
+    needs: test-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Package Android (APK if toolchain, else src zip)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          python build_android.py
+          mkdir -p dist/android
+          VER=$(python -c "import pathlib,re; t=pathlib.Path('src/__init__.py').read_text(encoding='utf-8'); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)', t).group(1))")
+          shopt -s nullglob
+          for f in dist/RemedyPDF-*-android.apk; do cp "$f" dist/android/; done
+          for f in dist/RemedyPDF-*-android-src.zip; do cp "$f" dist/android/; done
+          if [ -z "$(ls -A dist/android 2>/dev/null)" ]; then
+            echo "No android artifacts — fail" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          ls -la dist/android
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: dist/android/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Resolve version
         id: ver
         shell: bash
@@ -70,38 +159,55 @@ jobs:
           elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF_NAME}"
           else
-            TAG="v$(grep -oP '__version__ = \"\K[^\"]+' src/__init__.py | head -1)"
-          fi
-          if [ -z "$TAG" ]; then
-            TAG="v1.2.0"
+            TAG="v$(python -c "import pathlib,re; t=pathlib.Path('src/__init__.py').read_text(encoding='utf-8'); print(re.search(r'__version__\\s*=\\s*[\"\\']([^\"\\']+)', t).group(1))")"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-          echo "Resolved $TAG"
 
-      - name: Build onefile (PyInstaller)
-        run: python build_windows.py
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Stage artifacts
+      - name: Stage release files + latest.json
         shell: bash
         run: |
+          set -e
           mkdir -p dist/release
-          if [ -f dist/RemedyPDF.exe ]; then
-            cp dist/RemedyPDF.exe "dist/release/RemedyPDF-${{ steps.ver.outputs.version }}-windows.exe"
-            cp dist/RemedyPDF.exe "dist/release/RemedyPDF.exe"
-          else
-            echo "Missing dist/RemedyPDF.exe" >&2
-            ls -la dist || true
-            exit 1
+          find artifacts -type f -print
+          find artifacts -type f -exec cp {} dist/release/ \;
+          VER="${{ steps.ver.outputs.version }}"
+          TAG="${{ steps.ver.outputs.tag }}"
+          SETUP="RemedyPDF-${VER}-windows-setup.exe"
+          EXE="RemedyPDF-${VER}-windows.exe"
+          APK_ARGS=()
+          AZIP_ARGS=()
+          for f in dist/release/*.apk; do
+            if [ -f "$f" ]; then APK_ARGS=(--apk-name "$(basename "$f")"); break; fi
+          done
+          for f in dist/release/*android-src.zip dist/release/*android*.zip; do
+            if [ -f "$f" ]; then AZIP_ARGS=(--android-zip-name "$(basename "$f")"); break; fi
+          done
+          if [ ! -f "dist/release/$SETUP" ]; then
+            if [ -f dist/release/RemedyPDF.exe ]; then
+              cp dist/release/RemedyPDF.exe "dist/release/$SETUP"
+            fi
+          fi
+          if [ ! -f "dist/release/$EXE" ] && [ -f dist/release/RemedyPDF.exe ]; then
+            cp dist/release/RemedyPDF.exe "dist/release/$EXE"
           fi
           python scripts/write_latest_json.py \
-            --version "${{ steps.ver.outputs.version }}" \
-            --tag "${{ steps.ver.outputs.tag }}" \
+            --version "$VER" \
+            --tag "$TAG" \
             --repo "${{ github.repository }}" \
-            --exe-name "RemedyPDF-${{ steps.ver.outputs.version }}-windows.exe" \
-            --out dist/release/latest.json
+            --setup-name "$SETUP" \
+            --exe-name "$EXE" \
+            --out dist/release/latest.json \
+            "${APK_ARGS[@]}" \
+            "${AZIP_ARGS[@]}"
           cp resources/icon.png dist/release/icon.png || true
           ls -la dist/release
+          cat dist/release/latest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -120,12 +226,18 @@ jobs:
             - Repo: https://github.com/${{ github.repository }}
 
             ### Install
-            - Download **RemedyPDF-*-windows.exe** (onefile)
-            - Help → About → **Check for updates** uses GitHub Releases + `latest.json`
+
+            | Platform | Asset |
+            |----------|--------|
+            | **Windows** | `RemedyPDF-*-windows-setup.exe` (Inno Setup — Start Menu + Desktop) |
+            | **Windows portable** | `RemedyPDF-*-windows.exe` / `RemedyPDF.exe` |
+            | **Android** | `RemedyPDF-*-android.apk` or `*-android-src.zip` |
+
+            Help → About → **Check for updates** uses GitHub Releases + `latest.json`.
 
             ### Notes
-            - Themes, both-sides book mode, fine zoom, mobile/APK polish
-            - Auto-update via GitHub Releases + `latest.json`
+            - Themes, both-sides book mode, fine zoom, mobile polish
+            - Auto-update via GitHub Releases + `latest.json` (windows-x86_64 + android-arm64)
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
           files: |

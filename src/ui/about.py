@@ -157,6 +157,30 @@ class AboutDialog(QDialog):
         ver.setObjectName("aboutVersion")
         body.addWidget(ver)
 
+        # Platform / channel tags (SecretSticky-style meta chips)
+        tags_row = QHBoxLayout()
+        tags_row.setSpacing(6)
+        for chip in (
+            "Windows installer",
+            "Android APK",
+            "PDF · EPUB",
+            "Auto-update",
+            "MIT",
+        ):
+            tag = QLabel(chip)
+            tag.setObjectName("aboutTag")
+            tag.setStyleSheet(
+                "QLabel#aboutTag {"
+                "  padding: 2px 8px;"
+                "  border-radius: 8px;"
+                "  border: 1px solid rgba(128,128,128,0.45);"
+                "  font-size: 11px;"
+                "}"
+            )
+            tags_row.addWidget(tag)
+        tags_row.addStretch(1)
+        body.addLayout(tags_row)
+
         author = QLabel(f"by {__author__}")
         author.setObjectName("aboutAuthor")
         body.addWidget(author)
@@ -192,7 +216,9 @@ class AboutDialog(QDialog):
         root.addLayout(row)
 
         footer = QHBoxLayout()
-        meta = QLabel("Local app · GitHub Releases auto-update")
+        meta = QLabel(
+            "Local app · Windows Setup + Android APK · GitHub Releases auto-update"
+        )
         meta.setObjectName("aboutFooterMeta")
         footer.addWidget(meta)
         footer.addStretch(1)

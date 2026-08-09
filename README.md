@@ -20,8 +20,9 @@ A sleek, fast multi-format document viewer and editor with Remedy themes, both-s
 - **Themes** — Dark / light Remedy QSS (`Ctrl+Shift+T`)
 - **Mobile / APK** — Larger touch targets, flick scroll, hold-to-edit, mobile default zoom
 - **Brand assets** — Window icon (`resources/icon.ico` / `icon.png`) + About logo (`logo_ui.png`)
-- **About + Auto-Update** — SecretSticky-style About (hello, links, Check for updates) against GitHub Releases + optional `latest.json`
-- **Cross-Platform** — Windows primary; Android build script scaffold
+- **About + Auto-Update** — SecretSticky-style About (hello, platform tags, Check for updates) against GitHub Releases + `latest.json`
+- **Windows installer** — Inno Setup `*-windows-setup.exe` (Start Menu + Desktop shortcuts) + portable onefile
+- **Android APK** — Buildozer package when SDK present; otherwise versioned mobile source zip on Releases
 
 ## Requirements
 
@@ -84,8 +85,11 @@ Channel constants live in `src/__init__.py` (`GITHUB_OWNER`, `GITHUB_REPO`, vers
 
 Release workflow publishes:
 
-- `RemedyPDF.exe` (PyInstaller onefile, branded icon)
-- `latest.json` — `{ "version", "notes", "url", "pub_date" }` for the in-app checker
+- `RemedyPDF-*-windows-setup.exe` — Inno Setup installer
+- `RemedyPDF-*-windows.exe` / `RemedyPDF.exe` — portable onefile
+- `RemedyPDF-*-android.apk` or `*-android-src.zip`
+- `latest.json` — multi-platform `{ version, platforms.windows-x86_64, platforms.android-arm64 }`
+- `icon.png`
 
 ## Tests
 
@@ -97,18 +101,26 @@ CI runs the same suite on Windows + Ubuntu (offscreen Qt).
 
 ## Building
 
-### Windows Installer
+### Windows installer (Setup.exe)
 
 ```bash
+pip install pyinstaller
 python build_windows.py
-# or:
-python -m PyInstaller --name RemedyPDF --onefile --windowed --add-data "resources;resources" --icon resources/icon.ico src/main.py
+# → dist/RemedyPDF.exe                          (portable onefile)
+# → dist/RemedyPDF-<ver>-windows-setup.exe      (Inno Setup installer)
 ```
 
-### Android APK (scaffold)
+Inno Setup 6 is used when present, or auto-downloaded into `tools/InnoSetup`
+(`--download-inno`, default on). Script: `installer/remedypdf.iss`.
+
+See [docs/INSTALL.md](docs/INSTALL.md).
+
+### Android APK
 
 ```bash
 python build_android.py
+# With Buildozer: bin/*.apk → dist/RemedyPDF-<ver>-android.apk
+# Without:        dist/RemedyPDF-<ver>-android-src.zip + ANDROID_BUILD.md
 ```
 
 Touch/APK notes:
@@ -122,8 +134,11 @@ Touch/APK notes:
 1. Bump `__version__` in `src/__init__.py` (single source of truth)
 2. Update `CHANGELOG.md`
 3. Push to `main` → CI must be green
-4. Tag and push: `git tag v1.2.0 && git push origin v1.2.0`
-5. GitHub Actions **Release** workflow builds the exe, writes `latest.json`, and opens a draft release
+4. Tag and push: `git tag v1.3.0 && git push origin v1.3.0`
+5. GitHub Actions **Release** workflow builds:
+   - Windows Setup installer + portable exe
+   - Android APK or mobile source zip
+   - `latest.json` (multi-platform autoupdate channel)
 
 ## License
 
