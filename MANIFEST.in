@@ -1,0 +1,11 @@
+include README.md
+include CHANGELOG.md
+include LICENSE
+include requirements.txt
+include pytest.ini
+recursive-include resources *
+recursive-include docs *
+recursive-include tests *
+recursive-include scripts *
+include build_windows.py
+include build_android.py

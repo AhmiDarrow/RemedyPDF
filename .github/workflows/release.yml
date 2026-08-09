@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. v1.2.0). Leave empty to use git ref."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-gate:
+    name: Test gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install + test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pyinstaller
+          pytest -q
+
+  build-windows:
+    name: Build Windows + GitHub Release
+    needs: test-gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="v$(grep -oP '__version__ = \"\K[^\"]+' src/__init__.py | head -1)"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="v1.2.0"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Resolved $TAG"
+
+      - name: Build onefile (PyInstaller)
+        run: python build_windows.py
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          if [ -f dist/RemedyPDF.exe ]; then
+            cp dist/RemedyPDF.exe "dist/release/RemedyPDF-${{ steps.ver.outputs.version }}-windows.exe"
+            cp dist/RemedyPDF.exe "dist/release/RemedyPDF.exe"
+          else
+            echo "Missing dist/RemedyPDF.exe" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          python scripts/write_latest_json.py \
+            --version "${{ steps.ver.outputs.version }}" \
+            --tag "${{ steps.ver.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --exe-name "RemedyPDF-${{ steps.ver.outputs.version }}-windows.exe" \
+            --out dist/release/latest.json
+          cp resources/icon.png dist/release/icon.png || true
+          ls -la dist/release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: RemedyPDF ${{ steps.ver.outputs.tag }}
+          draft: false
+          generate_release_notes: true
+          body: |
+            ## RemedyPDF ${{ steps.ver.outputs.tag }}
+
+            Fast multi-format document viewer and editor — PDF, EPUB, XPS, CBZ, and more.
+
+            Hi I'm Ahmi, hope this helps!
+            - Profile: https://github.com/AhmiDarrow
+            - Repo: https://github.com/${{ github.repository }}
+
+            ### Install
+            - Download **RemedyPDF-*-windows.exe** (onefile)
+            - Help → About → **Check for updates** uses GitHub Releases + `latest.json`
+
+            ### Notes
+            - Themes, both-sides book mode, fine zoom, mobile/APK polish
+            - Auto-update via GitHub Releases + `latest.json`
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
+          files: |
+            dist/release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

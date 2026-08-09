@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.spec
+
+# Local / temp
+_dump*
+_probe*
+_read*
+_inspect*
+_export*
+_run_*
+_launch*
+_cleanup*
+_import_check.py
+_ship*
+_fix_*
+_ship_check.py
+scripts/_ship*
+scripts/_fix*
+scripts/_verify*
+_full_sources/
+_dump_out/
+.remedy-build/
+*.log
+*.pyc
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.key
+.env
+_fix_*.py
+_check_*.py
+_ship_*.py
+scripts/_verify_brand.py
