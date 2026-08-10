@@ -122,6 +122,23 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Restore Android SDK cache
+        uses: actions/cache@v4
+        id: cache-sdk
+        with:
+          path: tools/android-sdk
+          key: android-sdk-${{ runner.os }}-v1
+
+      - name: Restore Buildozer cache
+        uses: actions/cache@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_apk == 'true' }}
+        id: cache-buildozer
+        with:
+          path: .buildozer
+          key: buildozer-${{ runner.os }}-armeabi-v7a-${{ hashFiles('buildozer.spec', 'requirements.txt') }}
+          restore-keys: |
+            buildozer-${{ runner.os }}-armeabi-v7a-
+
       - name: Package Android (zip-first, always)
         env:
           REMEDYPDF_MOBILE: "1"
@@ -165,13 +182,15 @@ jobs:
           pip install buildozer cython virtualenv
 
           SDK_ROOT="${GITHUB_WORKSPACE}/tools/android-sdk"
-          mkdir -p "$SDK_ROOT/cmdline-tools"
-          cd /tmp
-          URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-          curl -fsSL -o cmdtools.zip "$URL"
-          unzip -q cmdtools.zip -d "$SDK_ROOT/cmdline-tools"
-          if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
-            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+          if [ ! -f "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            cd /tmp
+            URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            curl -fsSL -o cmdtools.zip "$URL"
+            unzip -q cmdtools.zip -d "$SDK_ROOT/cmdline-tools"
+            if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ]; then
+              mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+            fi
           fi
           export ANDROID_HOME="$SDK_ROOT"
           export ANDROID_SDK_ROOT="$SDK_ROOT"
