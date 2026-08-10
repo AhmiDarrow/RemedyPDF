@@ -27,7 +27,7 @@ except ImportError:
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
-        __version__ = "1.3.7"
+        __version__ = "1.4.0"
 
 _UA = f"RemedyPDF/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 

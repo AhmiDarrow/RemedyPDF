@@ -139,6 +139,17 @@ def test_cache_byte_budget(multi_page_pdf: Path):
     eng.close()
 
 
+def test_cache_drops_oversized_render(sample_pdf: Path):
+    """A single render bigger than the whole budget must not blow the cap."""
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(sample_pdf))
+    eng.MAX_CACHE_BYTES = 4096  # tiny — the zoom-4 render (~11 MB) exceeds it alone
+    eng.render_view_rgb(zoom=4.0)
+    assert eng._cache_bytes <= eng.MAX_CACHE_BYTES
+    assert len(eng._page_cache) <= eng._cache_max
+    eng.close()
+
+
 def test_add_text_and_save(sample_pdf: Path, tmp_path: Path):
     eng = PDFEngine()
     assert eng.open(str(sample_pdf))
@@ -292,7 +303,13 @@ def test_supported_extensions_include_epub():
     assert ".xps" in exts
     assert ".cbz" in exts
     assert PDFEngine.is_supported_path("book.epub")
-    assert not PDFEngine.is_supported_path("note.docx")
+    # Extra formats added in 1.3.9 (MuPDF page-document input — no rebuild)
+    assert PDFEngine.is_supported_path("note.docx")
+    assert PDFEngine.is_supported_path("diagram.svg")
+    assert PDFEngine.is_supported_path("photo.jpg")
+    assert PDFEngine.is_supported_path("photo.png")
+    assert PDFEngine.is_supported_path("cover.mobi")
+    assert not PDFEngine.is_supported_path("unknown.xyz")
 
 
 def test_open_epub(sample_epub: Path):
@@ -304,8 +321,7 @@ def test_open_epub(sample_epub: Path):
     assert eng.page_count >= 1
     png = eng.render_page(0)
     # Rendering may fail on some MuPDF builds; open success is the bar
-    if png is not None:
-        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    if png is not None:        assert png[:8] == b"\x89PNG\r\n\x1a\n"
     eng.close()
 
 
@@ -321,6 +337,75 @@ def test_open_html_as_document(tmp_path: Path):
         pytest.skip("MuPDF cannot open HTML on this build")
     assert eng.page_count >= 1
     eng.close()
+
+
+def test_open_extra_formats_svg_png_docx(tmp_path: Path):
+    """1.3.9: SVG / plain images / DOCX open as page documents (best-effort)."""
+    import base64
+    import zipfile
+
+    svg = tmp_path / "pic.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60">'
+        '<rect width="120" height="60" fill="#2e5f9e"/>'
+        "<text x=\"10\" y=\"40\">Remedy</text></svg>",
+        encoding="utf-8",
+    )
+    png = tmp_path / "pix.png"
+    png.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+        )
+    )
+    docx = tmp_path / "note.docx"
+    with zipfile.ZipFile(docx, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+            "</Types>",
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+            "</Relationships>",
+        )
+        z.writestr(
+            "word/document.xml",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:t>Hello Remedy</w:t></w:r></w:p></w:body></w:document>",
+        )
+        z.writestr(
+            "docProps/core.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            "<dc:title>Remedy note</dc:title><dc:creator>Ahmi</dc:creator></cp:coreProperties>",
+        )
+        z.writestr(
+            "docProps/app.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
+            "<Application>RemedyPDF</Application></Properties>",
+        )
+
+    for p, fmt in ((svg, "svg"), (png, "png"), (docx, "docx")):
+        eng = PDFEngine()
+        ok = eng.open(str(p))
+        if not ok:
+            pytest.skip(f"MuPDF build cannot open {fmt} on this build")
+        assert eng.page_count >= 1
+        assert eng.format == fmt
+        eng.close()
 
 
 def test_reset_zoom_optional_target(sample_pdf: Path):

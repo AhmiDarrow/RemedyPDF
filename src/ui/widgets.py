@@ -183,6 +183,9 @@ class PDFCanvas(QLabel):
     double_clicked_at = pyqtSignal(float, float)  # PC edit
     long_pressed_at = pyqtSignal(float, float)  # mobile hold-to-edit
     edit_at = pyqtSignal(float, float)  # unified edit signal
+    tap_zone = pyqtSignal(int)  # mobile reader tap zones: -1 prev, +1 next, 0 middle
+    pinch_zoom = pyqtSignal(float, float, float)  # scale delta, center x, center y (widget coords)
+    pinch_finished = pyqtSignal()  # pinch gesture ended — flush debounced render
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -209,6 +212,10 @@ class PDFCanvas(QLabel):
         self._long_timer.setSingleShot(True)
         self._long_timer.timeout.connect(self._fire_long_press)
         self._long_fired = False
+        # Tap-zone page flips (mobile): quick tap, no drag, no long-press
+        self._press_moved: bool = False
+        # Native pinch-to-zoom on Android / touch screens (desktop: no-op)
+        self.grabGesture(Qt.PinchGesture)
 
     def set_touch_mode(self, enabled: bool) -> None:
         """When True, hold-to-edit is active; when False, only double-click edits."""
@@ -304,6 +311,7 @@ class PDFCanvas(QLabel):
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._edit_enabled and event.button() == Qt.LeftButton:
             self._press_pos = event.pos()
+            self._press_moved = False
             self._long_fired = False
             # Long-press only on touch/mobile — desktop uses double-click
             if self._touch_mode:
@@ -325,12 +333,32 @@ class PDFCanvas(QLabel):
             dy = abs(event.pos().y() - self._press_pos.y())
             if dx > 12 or dy > 12:
                 self._long_timer.stop()
+                self._press_moved = True
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self._long_timer.stop()
+        if (
+            self._touch_mode
+            and not self._long_fired
+            and not self._press_moved
+            and self._press_pos is not None
+            and event.button() == Qt.LeftButton
+        ):
+            self._emit_tap_zone(event.pos().x())
         self._press_pos = None
         super().mouseReleaseEvent(event)
+
+    def _emit_tap_zone(self, x: float) -> None:
+        """Classic reader tap zones: right edge next, left edge prev (touch only)."""
+        try:
+            from utils.mobile import tap_zone_for
+
+            zone = tap_zone_for(x, max(1, self.width()))
+        except Exception:  # noqa: BLE001
+            zone = 0
+        if zone:
+            self.tap_zone.emit(zone)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """Desktop: double-click to edit (suppressed on pure touch mode)."""
@@ -356,12 +384,15 @@ class PDFCanvas(QLabel):
                 points = event.touchPoints() if hasattr(event, "touchPoints") else []
                 if points:
                     self._press_pos = points[0].pos().toPoint()
+                    self._press_moved = False
                     self._long_fired = False
                     if self._edit_enabled:
                         self._long_timer.start(LONG_PRESS_MS)
                 return True
             if et == QEvent.TouchEnd and self._touch_mode:
                 self._long_timer.stop()
+                if not self._long_fired and not self._press_moved and self._press_pos is not None:
+                    self._emit_tap_zone(self._press_pos.x())
                 self._press_pos = None
                 return True
             if et == QEvent.TouchUpdate and self._touch_mode and self._press_pos is not None:
@@ -370,7 +401,28 @@ class PDFCanvas(QLabel):
                     p = points[0].pos().toPoint()
                     if abs(p.x() - self._press_pos.x()) > 12 or abs(p.y() - self._press_pos.y()) > 12:
                         self._long_timer.stop()
+                        self._press_moved = True
                 return True
+            if et == QEvent.Gesture:
+                try:
+                    from PyQt5.QtWidgets import QGestureEvent, QPinchGesture
+
+                    for gesture in event.gestures():
+                        if isinstance(gesture, QPinchGesture):
+                            state = gesture.state()
+                            if state == Qt.GestureStarted:
+                                return True
+                            if state == Qt.GestureUpdated:
+                                scale = gesture.scaleFactor()
+                                if scale > 0:
+                                    center = gesture.centerPoint().toPoint()
+                                    self.pinch_zoom.emit(scale, center.x(), center.y())
+                                return True
+                            if state in (Qt.GestureFinished, Qt.GestureCanceled):
+                                self.pinch_finished.emit()
+                                return True
+                except Exception:  # noqa: BLE001
+                    pass
         except Exception:  # noqa: BLE001
             pass
         return super().event(event)

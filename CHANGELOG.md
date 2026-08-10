@@ -2,6 +2,102 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.0] — 2026-08-10
+
+### Added — mobile QoL & polish pass (Android APK)
+
+- **Tap zones flip pages** — in touch mode a quick tap on the right third of
+  the screen goes to the next page, the left third to the previous (classic
+  reader UX). Long-press-to-edit and pan are untouched: a drag or a held
+  finger never flips a page.
+- **Pinch-to-zoom** — native `QPinchGesture` on the canvas zooms around the
+  pinch center and reuses the debounced zoom-to-point render pipeline, so
+  pinching is smooth and never snaps the view to top-left.
+- **Reader mode** — new toolbar toggle hides the toolbar, navigator, search
+  bar and status bar and goes fullscreen for distraction-free reading;
+  Esc (or tapping the toggle again) restores the chrome. F11 fullscreen
+  still works on desktop.
+- **Buildozer config polish**: `orientation = sensor` (auto-rotate — PDFs
+  read naturally in landscape), `fullscreen = 1` (immersive APK reading),
+  `version` synced to 1.4.0.
+
+### Polish
+- `utils.mobile.tap_zone_for()` — pure, tested tap-zone classifier.
+- All version fallbacks (app, updater, about, main) unified on 1.4.0.
+
+### Tests
+- Tap-zone classifier (edges / middle / degenerate width)
+- Canvas pinch gesture registered; touch-mode tap emits ±1; drag and
+  desktop-mode taps never emit
+- Tap zones flip pages through the app; pinch changes engine zoom
+- Reader mode hides chrome and exits on Esc
+- buildozer.spec version matches `__version__`, orientation sensor,
+  immersive fullscreen
+
+### Verification — auto-update chain proven working end-to-end (live)
+- Ran the real chain against GitHub on 2026-08-10: `latest.json` channel
+  resolves, an old version (1.2.0) is offered v1.3.7 via the `latest.json`
+  channel, up-to-date detection is correct at 1.4.0, the Windows installer
+  URL resolves, and the 98 MB setup.exe streams down with a valid `MZ`
+  header. **ALL PASS.**
+- New hermetic `tests/test_updater_schema.py` — pins the contract between
+  the release workflow's `scripts/write_latest_json.py` output and
+  `utils.updater.check_for_update` / `find_installer_url` (no network),
+  including the workflow's android src-zip fallback rewrite.
+- New opt-in `tests/test_updater_live.py` — re-proves the live chain after
+  any release (`REMEDYPDF_LIVE=1 pytest -q tests/test_updater_live.py`).
+- Inno fallback version in `installer/remedypdf.iss` synced to 1.4.0
+  (build_windows.py already passes the real version via `/DMyAppVersion`).
+
+## [1.3.9] — 2026-08-10
+
+### Added — QoL navigation (mouse + hotkeys)
+- **Mouse wheel flips pages** — in fit view (or at the scroll edge when zoomed)
+  the wheel turns the page like a book; inside a zoomed page it still scrolls.
+  Horizontal wheel / two-finger trackpad swipe flips pages directly.
+- **Mouse side buttons** (back / forward) flip to previous / next page.
+- **View rotation**: Ctrl+R / Ctrl+Shift+R (and View → Rotate Right/Left) rotate
+  the view 90° — great for scanned portrait PDFs. Rotation is view-only (never
+  baked into saved output) and click-to-edit hit-testing stays exact after
+  rotating (engine `set_rotation` / `rotate_right` / `rotate_left`).
+- **New hotkeys**: Ctrl+G go to page, Ctrl+W close document, Alt+←/→ pages,
+  Ctrl+Home/End first/last, Ctrl+PgUp/PgDn pages, F5 re-render.
+- **More readable formats, no rebuild** — the open dialog and engine now
+  recognize SVG, DOCX (MuPDF office input), MOBI and plain images
+  (PNG/JPG/BMP/GIF/TIFF/WEBP) as page-based documents, on top of
+  PDF/EPUB/XPS/CBZ/CBR/FB2/HTML/TXT. All still save-as-PDF.
+
+### Fixed
+- Version source of truth (`src/__init__.py`) now matches the UI fallbacks (1.3.9).
+
+### Tests
+- Wheel page-flip (fit + zoomed-edge + Ctrl-zoom exclusion + horizontal swipe)
+- Mouse side-button navigation via eventFilter
+- `close_document` lifecycle (close → reopen)
+- Rotation: view-size swap, edit-coordinate round-trip, clockwise render direction
+- Extra formats present in `SUPPORTED_EXTENSIONS` / `OPEN_FILTER`
+
+## [1.3.8] — 2026-08-10
+
+### Fixed
+- **Cache could blow past its byte budget**: `_cache_put` now re-runs LRU
+  eviction after updates too, so a single oversized render (e.g. one capped
+  page bigger than the whole budget) is dropped instead of silently wedging
+  `MAX_CACHE_BYTES`
+- **Book-spread fallback board fill allocated a giant Python int list**
+  (`[36, 40, 48] * pixels`) before the `bytearray` — now a C-speed
+  `bytes` multiply, no multi-GB transient on large spreads
+
+### Polish
+- **Ctrl+wheel zoom now zooms to the point under the cursor** — the scroll
+  anchor is captured before the zoom and restored after the debounced render,
+  so the content under the pointer stays fixed instead of snapping to top-left
+  on every wheel burst
+
+### Tests
+- `test_cache_drops_oversized_render` — a render larger than the whole cache
+  budget must evict itself and leave `_cache_bytes` under the cap
+
 ## [1.3.7] — 2026-08-10
 
 ### Fixed

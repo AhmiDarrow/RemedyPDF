@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, QByteArray, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QIcon, QKeySequence, QPixmap, QImage, QWheelEvent
+from PyQt5.QtCore import QEvent, Qt, QByteArray, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QIcon, QKeySequence, QCursor, QPixmap, QImage, QWheelEvent
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -47,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.3.7"
+        VERSION = "1.4.0"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
@@ -184,7 +184,12 @@ class RemedyPDFApp(QMainWindow):
         self._edit_dialog_open: bool = False
         self._prefetch_queued: bool = False  # collapse idle neighbor warm-ups
         self._auto_update_done: bool = False  # one silent startup check per launch
+        self._reader_mode: bool = False  # mobile reader: chrome hidden + fullscreen
         self._quitting_for_update: bool = False  # skip dirty-save prompt on update quit
+        # Zoom-to-point: content coords under the cursor captured at wheel time,
+        # restored after the debounced render so Ctrl+wheel zooms into the
+        # point under the cursor instead of snapping the view to top-left.
+        self._zoom_anchor = None
         # Wheel-zoom bursts (trackpad) re-render once after the burst settles
         # instead of once per notch — big smoothness win while pinching/zooming.
         self._zoom_debounce = QTimer(self)
@@ -244,6 +249,10 @@ class RemedyPDFApp(QMainWindow):
         # Do not also connect double_clicked_at / long_pressed_at or the dialog opens twice.
         self.canvas.set_touch_mode(self._touch or self._mobile)
         self.canvas.edit_at.connect(self._on_canvas_edit)
+        # Mobile gestures: tap zones flip pages, pinch zooms to the pinch center
+        self.canvas.tap_zone.connect(self._on_tap_zone)
+        self.canvas.pinch_zoom.connect(self._on_pinch_zoom)
+        self.canvas.pinch_finished.connect(self._on_pinch_finished)
         if self._touch or self._mobile:
             self.canvas.setToolTip("Hold on the page to add text")
         else:
@@ -276,6 +285,12 @@ class RemedyPDFApp(QMainWindow):
         save_as_act.setShortcut(QKeySequence.SaveAs)
         save_as_act.triggered.connect(self.save_document_as)
         file_menu.addAction(save_as_act)
+
+        close_act = QAction("&Close Document", self)
+        close_act.setShortcut("Ctrl+W")
+        close_act.setToolTip("Close the current document (Ctrl+W)")
+        close_act.triggered.connect(self.close_document)
+        file_menu.addAction(close_act)
 
         file_menu.addSeparator()
         quit_act = QAction("&Quit", self)
@@ -358,6 +373,19 @@ class RemedyPDFApp(QMainWindow):
         self.fullscreen_act.setToolTip("Toggle full screen (F11 / Esc)")
         self.fullscreen_act.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(self.fullscreen_act)
+
+        view_menu.addSeparator()
+        rot_r = QAction("Rotate &Right", self)
+        rot_r.setShortcut("Ctrl+R")
+        rot_r.setToolTip("Rotate the view 90° clockwise (Ctrl+R)")
+        rot_r.triggered.connect(self.rotate_right)
+        view_menu.addAction(rot_r)
+
+        rot_l = QAction("Rotate &Left", self)
+        rot_l.setShortcut("Ctrl+Shift+R")
+        rot_l.setToolTip("Rotate the view 90° counter-clockwise (Ctrl+Shift+R)")
+        rot_l.triggered.connect(self.rotate_left)
+        view_menu.addAction(rot_l)
 
         view_menu.addSeparator()
         # Visibility / reading themes
@@ -469,6 +497,12 @@ class RemedyPDFApp(QMainWindow):
         )
         go_menu.addAction(last_act)
 
+        goto_act = QAction("&Go to Page…", self)
+        goto_act.setShortcut("Ctrl+G")
+        goto_act.setToolTip("Jump to a page number (Ctrl+G)")
+        goto_act.triggered.connect(self._goto_page_dialog)
+        go_menu.addAction(goto_act)
+
         help_menu = menubar.addMenu("&Help")
         about_act = QAction("&About", self)
         about_act.triggered.connect(self.show_about)
@@ -483,7 +517,7 @@ class RemedyPDFApp(QMainWindow):
         help_menu.addAction(shortcuts_act)
 
     def _build_toolbar(self) -> None:
-        tb = QToolBar("Main")
+        self.toolbar = tb = QToolBar("Main")
         tb.setMovable(False)
         self.addToolBar(tb)
 
@@ -564,6 +598,13 @@ class RemedyPDFApp(QMainWindow):
         find_btn.triggered.connect(self._show_find)
         tb.addAction(find_btn)
 
+        tb.addSeparator()
+        self.reader_act = QAction("Reader", self)
+        self.reader_act.setCheckable(True)
+        self.reader_act.setToolTip("Reader mode — hide chrome, tap edges to flip pages")
+        self.reader_act.triggered.connect(self._toggle_reader_mode)
+        tb.addAction(self.reader_act)
+
     def _build_shortcuts(self) -> None:
         # Arrow / page navigation
         QShortcut(QKeySequence(Qt.Key_Left), self, activated=self.prev_page)
@@ -602,6 +643,24 @@ class RemedyPDFApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Alt+Up"), self, activated=lambda: self.adjust_contrast(0.05))
         QShortcut(QKeySequence("Ctrl+Alt+Down"), self, activated=lambda: self.adjust_contrast(-0.05))
 
+        # Page-flip comfort: Alt+arrows, Ctrl+Home/End, Ctrl+PgUp/PgDown
+        QShortcut(QKeySequence("Alt+Left"), self, activated=self.prev_page)
+        QShortcut(QKeySequence("Alt+Right"), self, activated=self.next_page)
+        QShortcut(QKeySequence("Ctrl+Home"), self, activated=lambda: self._goto_page(0))
+        QShortcut(
+            QKeySequence("Ctrl+End"),
+            self,
+            activated=lambda: self._goto_page(max(0, self.engine.page_count - 1)),
+        )
+        QShortcut(QKeySequence("Ctrl+PageUp"), self, activated=self.prev_page)
+        QShortcut(QKeySequence("Ctrl+PageDown"), self, activated=self.next_page)
+        # Go to page / close / rotate / re-render
+        QShortcut(QKeySequence("Ctrl+G"), self, activated=self._goto_page_dialog)
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close_document)
+        QShortcut(QKeySequence("Ctrl+R"), self, activated=self.rotate_right)
+        QShortcut(QKeySequence("Ctrl+Shift+R"), self, activated=self.rotate_left)
+        QShortcut(QKeySequence("F5"), self, activated=self.render_current)
+
         # Wheel fine-zoom: wheelEvent + eventFilter (scroll area steals wheel)
 
     # ----- wheel: Ctrl = fine 1%; Ctrl+Shift = coarse 15% -----
@@ -625,6 +684,29 @@ class RemedyPDFApp(QMainWindow):
             step = PDFEngine.ZOOM_COARSE if delta > 0 else -PDFEngine.ZOOM_COARSE
         else:
             step = PDFEngine.ZOOM_FINE if delta > 0 else -PDFEngine.ZOOM_FINE
+        # Capture the content point under the cursor BEFORE the zoom changes,
+        # so the debounced render can restore it (zoom-to-point). Without this,
+        # render_current's ensureWidgetVisible snaps the view to top-left every
+        # burst and zooming under the cursor feels broken.
+        self._zoom_anchor = None
+        try:
+            hbar = self.scroll.horizontalScrollBar()
+            vbar = self.scroll.verticalScrollBar()
+            vp = self.scroll.viewport()
+            if hbar is not None and vbar is not None and vp is not None:
+                pos = vp.mapFromGlobal(QCursor.pos())
+                old_w, old_h = self.engine.get_view_size_at_zoom(self.engine.zoom)
+                if old_w > 0 and old_h > 0:
+                    self._zoom_anchor = (
+                        hbar.value() + pos.x(),  # content x under cursor
+                        vbar.value() + pos.y(),  # content y under cursor
+                        pos.x(),
+                        pos.y(),
+                        old_w,
+                        old_h,
+                    )
+        except Exception:  # noqa: BLE001
+            self._zoom_anchor = None
         self.engine.set_zoom(self.engine.zoom + step)  # cheap: just clamps + clears cache
         self._zoom_debounce.start()
         self._update_status()  # live % label while the burst is in flight
@@ -632,29 +714,103 @@ class RemedyPDFApp(QMainWindow):
 
     def _flush_zoom_render(self) -> None:
         """Debounced full render after a wheel-zoom burst settles."""
-        self.render_current()
+        anchor = self._zoom_anchor
+        self._zoom_anchor = None
+        self.render_current(keep_view=anchor is not None)
+        if anchor is not None:
+            self._restore_zoom_anchor(anchor)
         self._update_status()
+
+    def _restore_zoom_anchor(self, anchor) -> None:
+        """Restore scrollbars so the content point under the cursor stays fixed."""
+        try:
+            cx_abs, cy_abs, cx, cy, old_w, old_h = anchor
+            new_w, new_h = self.engine.get_view_size_at_zoom(self.engine.zoom)
+            if new_w <= 0 or new_h <= 0:
+                return
+            hbar = self.scroll.horizontalScrollBar()
+            vbar = self.scroll.verticalScrollBar()
+            if hbar is not None:
+                fx = cx_abs / old_w
+                target = int(round(fx * new_w - cx))
+                hbar.setValue(max(hbar.minimum(), min(hbar.maximum(), target)))
+            if vbar is not None:
+                fy = cy_abs / old_h
+                target = int(round(fy * new_h - cy))
+                vbar.setValue(max(vbar.minimum(), min(vbar.maximum(), target)))
+        except Exception:  # noqa: BLE001
+            pass
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         if self._zoom_from_wheel(event):
             event.accept()
             return
+        if self._wheel_flips_page(event):
+            event.accept()
+            return
         super().wheelEvent(event)
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        # QScrollArea viewport consumes wheel for panning — intercept Ctrl+wheel for zoom
-        try:
-            from PyQt5.QtCore import QEvent
-
-            if event.type() == QEvent.Wheel and obj in (
-                self.scroll.viewport(),
-                self.canvas,
-            ):
-                if self._zoom_from_wheel(event):
-                    return True
-        except Exception:  # noqa: BLE001
-            pass
+        # QScrollArea viewport consumes wheel for panning — intercept Ctrl+wheel
+        # for zoom, and plain wheel for page flips at scroll edges.
+        if event.type() == QEvent.Wheel and obj in (
+            self.scroll.viewport(),
+            self.canvas,
+        ):
+            if self._zoom_from_wheel(event):
+                return True
+            if self._wheel_flips_page(event):
+                return True
+        # Mouse side buttons (back / forward) flip pages — handy on real mice.
+        if (
+            event.type() == QEvent.MouseButtonPress
+            and obj is self.canvas
+            and event.button() in (Qt.XButton1, Qt.XButton2)
+        ):
+            if event.button() == Qt.XButton1:
+                self.prev_page()
+            else:
+                self.next_page()
+            return True
         return super().eventFilter(obj, event)
+
+    def _wheel_flips_page(self, event: QWheelEvent) -> bool:
+        """Page-flip wheel handling.
+
+        - Plain vertical wheel flips pages only at the scroll edge (or when the
+          page fits and there is nothing to scroll) — a natural 'scroll through
+          the document' feel in fit mode.
+        - Horizontal wheel / two-finger trackpad swipe flips pages directly.
+        - Ctrl+wheel stays zoom (handled before this is called).
+        """
+        if not self.engine.is_open:
+            return False
+        if event.modifiers() & Qt.ControlModifier:
+            return False  # Ctrl+wheel = zoom
+        angle = event.angleDelta()
+        dx, dy = angle.x(), angle.y()
+        if dy == 0:
+            if dx != 0:  # horizontal swipe → prev/next
+                if dx > 0:
+                    self.prev_page()
+                else:
+                    self.next_page()
+                return True
+            return False  # pixelDelta-only trackpads — let Qt scroll natively
+        vbar = self.scroll.verticalScrollBar()
+        can_scroll = vbar is not None and vbar.maximum() > vbar.minimum()
+        if can_scroll:
+            cur = vbar.value()
+            if dy > 0 and cur > vbar.minimum():
+                return False  # still scrolling up inside the page
+            if dy < 0 and cur < vbar.maximum():
+                return False  # still scrolling down inside the page
+        # At the edge (or the page fits) → flip
+        if dy > 0:
+            self.prev_page()
+        else:
+            self.next_page()
+        return True
 
     # ----- file ops -----
 
@@ -827,6 +983,48 @@ class RemedyPDFApp(QMainWindow):
         """Deprecated single-click path — edit is double-click / hold only."""
         return
 
+    # ----- mobile gestures: tap zones + pinch zoom -----
+
+    def _on_tap_zone(self, direction: int) -> None:
+        """Tap right edge → next page, left edge → previous (touch mode)."""
+        if not self.engine.is_open:
+            return
+        if direction > 0:
+            self.next_page()
+        elif direction < 0:
+            self.prev_page()
+
+    def _on_pinch_zoom(self, scale: float, cx: float, cy: float) -> None:
+        """Pinch-to-zoom centered on the pinch point (Android / touch)."""
+        if not self.engine.is_open or scale <= 0:
+            return
+        # Anchor the content point under the pinch center — same zoom-to-point
+        # math as Ctrl+wheel so the pinch stays under the fingers.
+        try:
+            hbar = self.scroll.horizontalScrollBar()
+            vbar = self.scroll.verticalScrollBar()
+            vp = self.scroll.viewport()
+            if hbar is not None and vbar is not None and vp is not None:
+                old_w, old_h = self.engine.get_view_size_at_zoom(self.engine.zoom)
+                if old_w > 0 and old_h > 0:
+                    self._zoom_anchor = (
+                        hbar.value() + int(cx),
+                        vbar.value() + int(cy),
+                        int(cx),
+                        int(cy),
+                        old_w,
+                        old_h,
+                    )
+        except Exception:  # noqa: BLE001
+            self._zoom_anchor = None
+        self.engine.set_zoom(self.engine.zoom * scale)
+        self._zoom_debounce.start()
+        self._update_status()
+
+    def _on_pinch_finished(self) -> None:
+        """Flush the debounced re-render when the pinch gesture ends."""
+        self._flush_zoom_render()
+
     # ----- navigation -----
 
     def prev_page(self) -> None:
@@ -852,6 +1050,54 @@ class RemedyPDFApp(QMainWindow):
             self._sync_page_controls()
             self.render_current()
             self._update_status()
+
+    def close_document(self) -> None:
+        """Close the current document (Ctrl+W) — clears canvas + controls."""
+        if not self.engine.is_open:
+            return
+        self.engine.close()
+        self.current_path = None
+        self._dirty = False
+        self._search_hits = []
+        self._search_index = -1
+        self._sync_page_controls()
+        self.render_current()
+        self._update_status()
+        self.statusBar().showMessage("Document closed", 2500)
+
+    def _goto_page_dialog(self) -> None:
+        """Prompt for a page number (Ctrl+G)."""
+        if not self.engine.is_open:
+            return
+        total = max(1, self.engine.page_count)
+        current = min(total, self.engine.current_page + 1)
+        num, ok = QInputDialog.getInt(
+            self,
+            "Go to Page",
+            f"Page (1–{total}):",
+            current,
+            1,
+            total,
+            1,
+        )
+        if ok:
+            self._goto_page(num - 1)
+
+    def rotate_right(self) -> None:
+        """Rotate the view 90° clockwise (Ctrl+R)."""
+        if not self.engine.is_open:
+            return
+        self.engine.rotate_right()
+        self.render_current()
+        self._update_status()
+
+    def rotate_left(self) -> None:
+        """Rotate the view 90° counter-clockwise (Ctrl+Shift+R)."""
+        if not self.engine.is_open:
+            return
+        self.engine.rotate_left()
+        self.render_current()
+        self._update_status()
 
     def _on_page_spin(self, value: int) -> None:
         if not self.engine.is_open:
@@ -970,6 +1216,9 @@ class RemedyPDFApp(QMainWindow):
 
     def toggle_fullscreen(self, checked: Optional[bool] = None) -> None:
         """Toggle full-screen reading mode (F11)."""
+        if getattr(self, "_reader_mode", False):
+            self._set_reader_mode(False)
+            return
         going_full = (not self.isFullScreen()) if checked is None else bool(checked)
         if going_full:
             self.showFullScreen()
@@ -985,8 +1234,41 @@ class RemedyPDFApp(QMainWindow):
         )
 
     def _exit_fullscreen_if_needed(self) -> None:
+        if getattr(self, "_reader_mode", False):
+            self._set_reader_mode(False)
+            return
         if self.isFullScreen():
             self.toggle_fullscreen(False)
+
+    def _toggle_reader_mode(self, checked: Optional[bool] = None) -> None:
+        """Mobile reader mode — hides chrome and goes fullscreen (tap zones flip)."""
+        going_on = (not self._reader_mode) if checked is None else bool(checked)
+        self._set_reader_mode(going_on)
+
+    def _set_reader_mode(self, on: bool) -> None:
+        """Hide toolbar/navigator/status bar and go fullscreen (or restore)."""
+        self._reader_mode = bool(on)
+        chrome = (
+            getattr(self, "toolbar", None),
+            getattr(self, "navigator", None),
+            getattr(self, "search_bar", None),
+            self.statusBar(),
+        )
+        for widget in chrome:
+            try:
+                if widget is not None:
+                    widget.setVisible(not self._reader_mode)
+            except Exception:  # noqa: BLE001
+                pass
+        if self._reader_mode:
+            self.showFullScreen()
+        else:
+            self.showNormal()
+            self.statusBar().showMessage("Reader mode off", 1500)
+        if getattr(self, "reader_act", None) is not None:
+            self.reader_act.blockSignals(True)
+            self.reader_act.setChecked(self._reader_mode)
+            self.reader_act.blockSignals(False)
 
     def set_theme(self, name: str) -> None:
         """Apply a named visibility theme — chrome text + document ink/paper."""
@@ -1151,13 +1433,13 @@ class RemedyPDFApp(QMainWindow):
 
     # ----- render / status -----
 
-    def render_current(self) -> None:
+    def render_current(self, *, keep_view: bool = False) -> None:
         if not self.engine.is_open:
             if self._mobile or self._touch:
                 tip = "Hold on a page to add text"
             else:
                 tip = "Double-click a page to add text"
-            self.canvas.clear_page(f"Open a PDF or EPUB to begin\n\n{tip}")
+            self.canvas.clear_page(f"Open a PDF, EPUB, DOCX or image to begin\n\n{tip}")
             return
         # Fast path: RGB24 → QImage (no PNG encode/decode on every paint)
         rgb = None
@@ -1198,6 +1480,11 @@ class RemedyPDFApp(QMainWindow):
         vw, vh = self.engine.get_view_size()
         self.canvas.set_page_metrics(vw, vh, self.engine.zoom)
         self.canvas.show_page(pix)
+        if keep_view:
+            # Zoom-to-point: the caller restores scrollbars from the anchor;
+            # don't snap to top-left or re-center the spine mid-burst.
+            self._queue_prefetch()
+            return
         # Ensure scroll area notices the new (possibly wider) spread size
         try:
             self.scroll.ensureWidgetVisible(self.canvas, 0, 0)
@@ -1424,16 +1711,24 @@ class RemedyPDFApp(QMainWindow):
             "Keyboard Shortcuts",
             "<b>Navigation</b><br>"
             "← / → / PgUp / PgDown / Space — pages (spreads in Book mode)<br>"
-            "Home / End — first / last<br><br>"
+            "Home / End — first / last<br>"
+            "Alt+← / Alt+→ — previous / next page<br>"
+            "Mouse back/forward buttons — previous / next page<br>"
+            "Mouse wheel / two-finger swipe — flips pages in fit view, "
+            "scrolls inside zoomed pages<br>"
+            "Ctrl+G — go to page…<br>"
+            "Ctrl+W — close document<br><br>"
             "<b>Zoom</b><br>"
             "Ctrl++ / Ctrl+- — 15% steps<br>"
-            "Ctrl+Scroll — <b>1% fine zoom</b><br>"
+            "Ctrl+Scroll — <b>1% fine zoom</b> (zooms to the cursor)<br>"
             "Ctrl+Shift++ / Ctrl+Shift+- — 1% fine zoom<br>"
             "Ctrl+0 / toolbar Reset — reset zoom<br><br>"
             "<b>View</b><br>"
             "Ctrl+B — Book mode (both sides)<br>"
+            "Ctrl+R / Ctrl+Shift+R — rotate view right / left<br>"
             "Ctrl+1 / 2 / 3 — fit width / page / height<br>"
             "F11 — full screen<br>"
+            "F5 — re-render current page<br>"
             "Ctrl+Shift+T — cycle theme (8 themes)<br>"
             "Ctrl+Shift+H / S / N — high contrast / sepia / night<br>"
             "Ctrl+Shift+I — invert page pixels<br>"

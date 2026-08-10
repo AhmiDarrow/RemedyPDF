@@ -16,6 +16,9 @@ MOBILE_CONTROL_HEIGHT = 48
 # Default mobile zoom slightly lower so spreads fit
 MOBILE_DEFAULT_ZOOM = 1.0
 
+# Mobile reader tap zones — fraction of width at each edge that flips pages
+TAP_ZONE_EDGE = 0.30
+
 
 def is_android() -> bool:
     """True when running under Android (python-for-android / Pyjnius / env)."""
@@ -143,3 +146,19 @@ def apply_mobile_attribute(qapp) -> None:
             qapp.setAttribute(Qt.AA_SynthesizeMouseForUnhandledTouchEvents, True)
     except Exception:  # noqa: BLE001
         pass
+
+
+def tap_zone_for(x: float, width: float) -> int:
+    """Classic reader tap zones: +1 next (right edge), -1 prev (left edge), 0 middle.
+
+    Pure function so it is easy to test headlessly. The canvas uses this to
+    decide whether a quick tap flips the page on mobile.
+    """
+    if width <= 0:
+        return 0
+    frac = x / width
+    if frac >= 1.0 - TAP_ZONE_EDGE:
+        return 1
+    if frac <= TAP_ZONE_EDGE:
+        return -1
+    return 0

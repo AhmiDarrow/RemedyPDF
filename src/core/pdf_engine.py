@@ -10,7 +10,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import fitz
 
-# Formats PyMuPDF can open as page-based documents
+# Formats PyMuPDF can open as page-based documents.
+# DOCX / SVG / plain images open through MuPDF's office+image handlers —
+# no extra dependencies, no rebuild.
 SUPPORTED_EXTENSIONS = (
     ".pdf",
     ".epub",
@@ -20,21 +22,36 @@ SUPPORTED_EXTENSIONS = (
     ".cbr",
     ".fb2",
     ".mobi",  # best-effort; depends on MuPDF build
+    ".svg",
+    ".docx",  # MuPDF >= 1.23 office input; view + save-as PDF
     ".html",
     ".htm",
     ".xhtml",
     ".txt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".webp",
 )
 
 OPEN_FILTER = (
-    "Documents (*.pdf *.epub *.xps *.oxps *.cbz *.fb2 *.html *.htm *.xhtml *.txt);;"
+    "Documents (*.pdf *.epub *.xps *.oxps *.cbz *.cbr *.fb2 *.mobi *.svg *.docx "
+    "*.html *.htm *.xhtml *.txt *.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff *.webp);;"
     "PDF (*.pdf);;"
     "EPUB (*.epub);;"
     "XPS (*.xps *.oxps);;"
-    "Comic Book (*.cbz);;"
+    "Comic Book (*.cbz *.cbr);;"
     "FictionBook (*.fb2);;"
+    "MOBI (*.mobi);;"
+    "SVG (*.svg);;"
+    "Word (*.docx);;"
     "HTML (*.html *.htm *.xhtml);;"
     "Text (*.txt);;"
+    "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tif *.tiff *.webp);;"
     "All Files (*)"
 )
 
@@ -83,6 +100,8 @@ class PDFEngine:
         self.page_ink: Optional[Tuple[int, int, int]] = None
         self.page_paper: Optional[Tuple[int, int, int]] = None
         self.theme_recolor: bool = False
+        # View-only rotation in degrees (0/90/180/270) — never baked into saves.
+        self.rotation: int = 0
 
     # ----- lifecycle -----
 
@@ -122,6 +141,7 @@ class PDFEngine:
         self._page_cache.clear()
         self._cache_bytes = 0
         self._format = ""
+        self.rotation = 0
 
     @property
     def is_open(self) -> bool:
@@ -272,6 +292,34 @@ class PDFEngine:
         if right < self.page_count:
             pages.append(right)
         return pages
+
+    # ----- view rotation (view-only; never baked into saved output) -----
+
+    def set_rotation(self, degrees: int) -> int:
+        """Set the view rotation in degrees (0/90/180/270 — any int normalized)."""
+        self.rotation = int(degrees) % 360
+        self._page_cache.clear()
+        self._cache_bytes = 0
+        return self.rotation
+
+    def rotate_right(self) -> int:
+        """Rotate the view 90° clockwise."""
+        return self.set_rotation(self.rotation + 90)
+
+    def rotate_left(self) -> int:
+        """Rotate the view 90° counter-clockwise."""
+        return self.set_rotation(self.rotation - 90)
+
+    @property
+    def is_rotated(self) -> bool:
+        """True when the view is at 90° or 270° (aspect swapped)."""
+        return self.rotation % 180 != 0
+
+    def _rotated_size(self, w: float, h: float) -> Tuple[float, float]:
+        """Page (w, h) after the current view rotation."""
+        if self.rotation % 180 == 0:
+            return float(w), float(h)
+        return float(h), float(w)
 
     # ----- zoom -----
 
@@ -543,17 +591,19 @@ class PDFEngine:
         z = max(self.ZOOM_MIN, min(float(zoom), self.ZOOM_MAX))
         try:
             r0 = self.doc[pages[0]].rect
-            w = float(r0.width) * z
-            h = float(r0.height) * z
+            w0, h0 = self._rotated_size(float(r0.width), float(r0.height))
+            w = w0 * z
+            h = h0 * z
             if len(pages) >= 2:
                 r1 = self.doc[pages[1]].rect
+                w1, h1 = self._rotated_size(float(r1.width), float(r1.height))
                 # Side-by-side + spine gutter. Keep in lockstep with
                 # _compose_spread_rgb's gap (max(10, int(14*z)) px) so the
                 # logical size equals the rendered spread — otherwise
                 # render_current smooth-scales EVERY book-mode frame.
                 gutter = max(10.0, 14.0 * z)
-                w = w + float(r1.width) * z + gutter
-                h = max(h, float(r1.height) * z)
+                w = w + w1 * z + gutter
+                h = max(h, h1 * z)
             return (w, h)
         except Exception:  # noqa: BLE001
             return (0.0, 0.0)
@@ -581,15 +631,15 @@ class PDFEngine:
             self._cache_bytes = max(
                 0, self._cache_bytes - self._item_bytes(self._page_cache[key])
             )
-            self._page_cache[key] = item
-            self._cache_bytes += self._item_bytes(item)
-            try:
-                self._page_cache.move_to_end(key)
-            except Exception:  # noqa: BLE001
-                pass
-            return
+        self._page_cache[key] = item
         self._cache_bytes += self._item_bytes(item)
+        try:
+            self._page_cache.move_to_end(key)
+        except Exception:  # noqa: BLE001
+            pass
         # Evict oldest until under BOTH the byte budget and the entry cap.
+        # Runs after inserts AND updates so a single oversized render is
+        # dropped instead of silently blowing past MAX_CACHE_BYTES.
         while len(self._page_cache) and (
             self._cache_bytes > self.MAX_CACHE_BYTES
             or len(self._page_cache) >= self._cache_max
@@ -599,7 +649,6 @@ class PDFEngine:
             except Exception:  # noqa: BLE001
                 break
             self._cache_bytes = max(0, self._cache_bytes - self._item_bytes(victim))
-        self._page_cache[key] = item
 
     def _pixmap_to_rgb(self, pix) -> Optional[Tuple[int, int, bytes]]:
         """Normalize a fitz Pixmap to contiguous RGB24 bytes."""
@@ -670,12 +719,14 @@ class PDFEngine:
         if self.doc is None or not (0 <= page < self.page_count):
             return None
         z = self._effective_render_zoom(page, float(zoom), uncapped=uncapped)
-        key = (page, z, "rgb", self._appearance_key())
+        key = (page, z, "rgb", self._appearance_key(), self.rotation)
         hit = self._cache_get(key)
         if hit is not None:
             return (hit["w"], hit["h"], hit["rgb"])
         try:
             mat = fitz.Matrix(z, z)  # effective (capped) zoom — key and buffer agree
+            if self.rotation:
+                mat = mat.prerotate(self.rotation)  # view-only; +90 = clockwise
             pix = self.doc[page].get_pixmap(matrix=mat, alpha=False)
             rgb = self._pixmap_to_rgb(pix)
             if rgb is None:
@@ -734,7 +785,7 @@ class PDFEngine:
 
         # Key on the effective render zoom so capped fit zooms share one spread.
         zkey = self._effective_render_zoom(pages[0], float(z), uncapped=False)
-        key = (tuple(pages), zkey, "spread-rgb", self._appearance_key())
+        key = (tuple(pages), zkey, "spread-rgb", self._appearance_key(), self.rotation)
         hit = self._cache_get(key)
         if hit is not None:
             return (hit["w"], hit["h"], hit["rgb"])
@@ -797,7 +848,9 @@ class PDFEngine:
             return (total_w, total_h, board_img.tobytes())
         except Exception:  # noqa: BLE001
             pass
-        board = bytearray([36, 40, 48] * (total_w * total_h))
+        # bytes-multiply in C (no giant Python int list) then wrap — the old
+        # [36, 40, 48] * N built a 3·pixels-int list first (huge on big spreads).
+        board = bytearray(b"\x24\x28\x30" * (total_w * total_h))
         x = 0
         for wi, hi, data in parts:
             y0 = (total_h - hi) // 2
@@ -830,31 +883,51 @@ class PDFEngine:
     def map_view_xy_to_page(self, x: float, y: float) -> Optional[Tuple[int, float, float]]:
         """Map a point in view/PDF-point space to (page_index, local_x, local_y).
 
-        Used by click-to-edit so the right half of a book spread targets the
-        right page. Returns None when nothing is open.
+        View space is the (rotated) page space: rotation moves the rendered
+        image, and this mapping inverts it so click-to-edit still targets the
+        right page spot. Used by click-to-edit so the right half of a book
+        spread targets the right page. Returns None when nothing is open.
         """
         if self.doc is None:
             return None
         pages = self.spread_pages()
         if not pages:
             return None
+        rot = self.rotation % 360
+
+        def _local(pw: float, ph: float, vx: float, vy: float) -> Tuple[float, float]:
+            """View-space (vx, vy) -> page-local (px, py) for one page."""
+            if rot == 90:  # clockwise: page top-left lands image top-right
+                px = vy
+                py = ph - vx
+            elif rot == 270:  # counter-clockwise
+                px = pw - vy
+                py = vx
+            elif rot == 180:
+                px = pw - vx
+                py = ph - vy
+            else:
+                px, py = vx, vy
+            if pw > 0:
+                px = max(0.0, min(px, pw - 1.0))
+            if ph > 0:
+                py = max(0.0, min(py, ph - 1.0))
+            return px, py
+
         if len(pages) == 1:
             pw, ph = self.get_page_size(pages[0])
-            lx = max(0.0, min(float(x), max(0.0, pw - 1.0))) if pw > 0 else float(x)
-            ly = max(0.0, min(float(y), max(0.0, ph - 1.0))) if ph > 0 else float(y)
+            lx, ly = _local(pw, ph, float(x), float(y))
             return (pages[0], lx, ly)
         left = pages[0]
         right = pages[1]
         left_w, left_h = self.get_page_size(left)
-        gutter = self.spread_gap_pts()
-        if float(x) <= left_w + gutter / 2.0:
-            lx = max(0.0, min(float(x), max(0.0, left_w - 1.0)))
-            ly = max(0.0, min(float(y), max(0.0, left_h - 1.0))) if left_h > 0 else float(y)
-            return (left, lx, ly)
         right_w, right_h = self.get_page_size(right)
-        lx = float(x) - left_w - gutter
-        lx = max(0.0, min(lx, max(0.0, right_w - 1.0))) if right_w > 0 else lx
-        ly = max(0.0, min(float(y), max(0.0, right_h - 1.0))) if right_h > 0 else float(y)
+        lw_rot, _ = self._rotated_size(left_w, left_h)
+        gutter = self.spread_gap_pts()
+        if float(x) <= lw_rot + gutter / 2.0:
+            lx, ly = _local(left_w, left_h, float(x), float(y))
+            return (left, lx, ly)
+        lx, ly = _local(right_w, right_h, float(x) - lw_rot - gutter, float(y))
         return (right, lx, ly)
 
     def get_view_size(self, page: Optional[int] = None) -> Tuple[float, float]:
