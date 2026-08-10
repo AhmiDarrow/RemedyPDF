@@ -39,7 +39,23 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.textinput import TextInput
 
 from src import __version__ as VERSION
-from src.core.pdf_engine import PDFEngine
+
+# Try PyMuPDF engine first (desktop). On Android, use native PdfRenderer.
+_PDF_ENGINE = None
+_ANDROID_RENDERER = None
+try:
+    from src.core.pdf_engine import PDFEngine as _PDFEngine
+
+    _PDF_ENGINE = _PDFEngine
+except ImportError:
+    pass
+if _PDF_ENGINE is None:
+    try:
+        from src.ui.android_renderer import AndroidPdfRenderer as _AndroidRenderer
+
+        _ANDROID_RENDERER = _AndroidRenderer
+    except ImportError:
+        pass
 
 
 class PDFViewer(Scatter):
@@ -97,7 +113,12 @@ class MainScreen(Screen):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.engine = PDFEngine(zoom=1.0)
+        if _PDF_ENGINE is not None:
+            self.engine = _PDF_ENGINE(zoom=1.0)
+        elif _ANDROID_RENDERER is not None:
+            self.engine = _ANDROID_RENDERER()
+        else:
+            self.engine = None
         self._last_touch_x: float = 0.0
         self._touch_start_x: float = 0.0
         self._swipe_threshold: int = 80  # px for page turn swipe
@@ -247,7 +268,7 @@ class MainScreen(Screen):
 
     def _update_page_display(self):
         """Render current page and update the viewer."""
-        if self.engine.doc is None:
+        if self.engine is None or not self.engine.is_open:
             self.viewer.show_rgb(0, 0, b"")
             self.current_label.text = "/ 0"
             return
@@ -268,7 +289,7 @@ class MainScreen(Screen):
         self.current_label.text = f"/ {total}"
 
     def _sync_page_input(self):
-        if self.page_input and self.engine.doc is not None:
+        if self.page_input and self.engine is not None and self.engine.is_open:
             self.page_input.text = str(self.engine.current_page + 1)
 
     # ---- File open ----
