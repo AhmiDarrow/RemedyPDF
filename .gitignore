@@ -11,6 +11,7 @@ build/
 .venv/
 venv/
 *.spec
+!buildozer.spec
 
 # Local / temp
 _dump*
