@@ -74,7 +74,7 @@ source.include_exts = py,png,jpg,jpeg,ico,json,txt,md,ttf,kv
 source.include_patterns = src/*,resources/*,main_android.py,main.py
 source.exclude_dirs = tests,build,dist,.git,.venv,venv,tools,.remedy-build,.buildozer,bin
 version = {ver}
-requirements = python3,kivy,pyjnius,android,pillow,pymupdf
+requirements = python3,kivy,pyjnius,android,pillow,pymupdf,certifi
 orientation = all
 fullscreen = 0
 android.permissions = INTERNET
@@ -85,7 +85,7 @@ android.accept_sdk_license = True
 android.archs = armeabi-v7a
 android.release_artifact = apk
 android.entrypoint = org.kivy.android.PythonActivity
-p4a.branch = master
+p4a.branch = develop
 {icon_line}
 {presplash_line}
 

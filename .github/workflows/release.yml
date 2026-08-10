@@ -197,11 +197,13 @@ jobs:
           yes 2>/dev/null | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses >/tmp/sdk-lic.txt || true
           "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" \
             "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
             "ndk;25.2.9519653" || true
 
           cd "${GITHUB_WORKSPACE}"
+          # Pin pip to avoid BuildDependencyInstallError with p4a
+          pip install "pip<24.1"
           python build_android.py --prefer-apk
           shopt -s nullglob
           for f in dist/RemedyPDF-*-android.apk bin/*.apk; do

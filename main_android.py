@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
 def main() -> int:
     """Launch the Kivy-based Android PDF viewer. Returns exit code."""
     from src.ui.kivy_app import RemedyPDFApp
