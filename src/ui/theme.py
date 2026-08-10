@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Dict, Literal, Tuple
 
 ThemeName = Literal[
+    "normal",
     "dark",
     "light",
     "high_contrast",
@@ -25,6 +26,7 @@ REMEDY_DANGER = "#FF6B6B"
 
 # Reading / visibility modes (UI chrome + canvas feel)
 THEME_LABELS = {
+    "normal": "Normal (no theme)",
     "dark": "Dark",
     "light": "Light",
     "high_contrast": "High contrast",
@@ -332,8 +334,9 @@ THEMES: Dict[str, Dict[str, str]] = {
     "paper": PAPER,
     "slate": SLATE,
 }
-DEFAULT_THEME: ThemeName = "dark"
+DEFAULT_THEME: ThemeName = "normal"
 THEME_ORDER: tuple[str, ...] = (
+    "normal",
     "dark",
     "light",
     "high_contrast",
@@ -347,6 +350,9 @@ THEME_ORDER: tuple[str, ...] = (
 
 def get_palette(name: str | None = None) -> Dict[str, str]:
     key = (name or DEFAULT_THEME).lower()
+    if key == "normal":
+        # No theme — neutral fallback used only for property reads (no QSS applied)
+        return LIGHT.copy()
     return THEMES.get(key, DARK).copy()
 
 
@@ -435,7 +441,13 @@ def apply_qt_palette(app, theme: str | Dict[str, str] | None = None) -> None:
 
 
 def build_stylesheet(theme: str | Dict[str, str] | None = None) -> str:
-    """Full application QSS — windows, menus, toolbars, forms, scrollbars."""
+    """Full application QSS — windows, menus, toolbars, forms, scrollbars.
+
+    "normal" is the no-theme mode: returns an empty stylesheet so the app
+    keeps the native system look.
+    """
+    if isinstance(theme, str) and theme.lower() == "normal":
+        return ""
     p = get_palette(theme) if isinstance(theme, str) or theme is None else theme
     link = p.get("link") or p.get("accent") or REMEDY_ACCENT
 
@@ -825,6 +837,24 @@ def apply_theme(app, theme_name: str = DEFAULT_THEME, *, mobile: bool | None = N
     Text roles (WindowText, Text, ButtonText, PlaceholderText, Link) follow the theme.
     """
     name = (theme_name or DEFAULT_THEME).lower()
+    if name == "normal":
+        # No theme — plain system look: clear QSS + palette, no recolor.
+        try:
+            app.setStyleSheet("")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            app.setPalette(app.style().standardPalette())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            app.setProperty("remedyTheme", "normal")
+            app.setProperty("remedyMobile", False)
+            app.setProperty("remedyPageInk", None)
+            app.setProperty("remedyPagePaper", None)
+        except Exception:  # noqa: BLE001
+            pass
+        return "normal"
     if name not in THEMES:
         name = DEFAULT_THEME
     css = build_stylesheet(name)

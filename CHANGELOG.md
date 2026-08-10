@@ -2,6 +2,21 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.2] — 2026-08-10
+
+### Changed
+- **Default theme is now "Normal (no theme)"** — the app starts with the plain
+  system look instead of the dark theme: no custom stylesheet, no palette
+  override, and document pages keep their own colors (no ink/paper recolor).
+  All 8 reading themes (dark, light, high-contrast, sepia, night, midnight,
+  paper, slate) are still one click away in View → Visibility & Theme, and
+  Ctrl+Shift+T still cycles Normal → Dark → Light → … → Slate → Normal.
+- `build_stylesheet("normal")` returns an empty stylesheet; `apply_theme(app,
+  "normal")` clears QSS + palette and disables theme page recolor.
+
+### Tests
+- `test_features_qol.py` — default theme is "normal" and its stylesheet is empty.
+
 ## [1.4.1] — 2026-08-10
 
 ### Fixed — Windows installer now ships `--onedir` (kills the auto-update crash)

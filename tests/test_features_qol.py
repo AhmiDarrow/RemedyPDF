@@ -30,6 +30,10 @@ def test_theme_toggle_and_stylesheet():
     css = build_stylesheet("dark")
     assert "QMainWindow" in css
     assert DEFAULT_THEME in THEME_ORDER
+    # Default is "normal" = no theme
+    assert DEFAULT_THEME == "normal"
+    assert THEME_ORDER[0] == "normal"
+    assert build_stylesheet("normal") == ""
     # apply_theme should not raise on QApplication
     from PyQt5.QtWidgets import QApplication
     import sys

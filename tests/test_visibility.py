@@ -58,6 +58,36 @@ def test_theme_order_has_eight_readable_themes():
     assert "Invert" in page_filter_label("invert")
 
 
+def test_normal_theme_is_no_theme():
+    """'normal' must be the default and mean a plain system look (no QSS)."""
+    from ui.theme import (
+        DEFAULT_THEME,
+        THEME_ORDER,
+        apply_theme,
+        build_stylesheet,
+        page_colors_for_theme,
+        theme_is_dark,
+    )
+
+    assert DEFAULT_THEME == "normal"
+    assert THEME_ORDER[0] == "normal"
+    # Empty stylesheet = no custom chrome
+    assert build_stylesheet("normal") == ""
+    # No forced document recolor: ink/paper fall back to the neutral light palette
+    colors = page_colors_for_theme("normal")
+    assert colors["paper"].startswith("#")
+    assert not theme_is_dark("normal")
+
+    from PyQt5.QtWidgets import QApplication
+    import sys
+
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    app.setStyleSheet("QMainWindow { background-color: #000000; }")
+    name = apply_theme(app, "normal")
+    assert name == "normal"
+    assert app.styleSheet() == ""  # cleared back to plain system look
+
+
 def test_theme_stylesheet_sets_text_colors():
     """Chrome QSS must paint labels, menus, inputs with theme text colors."""
     from ui.theme import THEMES, build_stylesheet

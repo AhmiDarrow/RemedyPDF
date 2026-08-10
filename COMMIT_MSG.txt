@@ -1,0 +1,12 @@
+feat(theme): default to Normal (no theme) + v1.4.2 sync
+
+- DEFAULT_THEME now "normal": app opens with the clean native system
+  look — no QSS stylesheet, no palette override, documents keep their
+  own colors (theme page recolor skipped)
+- View -> Visibility & Theme lists "Normal (no theme)" first, then all
+  8 themes; Ctrl+Shift+T cycles Normal -> Dark -> Light -> ... -> Normal
+- apply_theme clears stylesheet + palette for normal; build_stylesheet
+  returns empty; engine.clear_theme_page_colors() called on switch
+- version unified 1.4.2 across init/main/app/updater/about/iss/buildozer
+- tests: normal-theme-is-no-theme + default-theme assertions; suite 114
+  collected, all pass (6 live-only skips)

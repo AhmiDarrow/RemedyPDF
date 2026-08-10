@@ -51,7 +51,7 @@ except ImportError:
         PATREON_URL = "https://www.patreon.com/cw/AhmiDarrow"
         __app_name__ = "RemedyPDF"
         __author__ = "Ahmi Darrow"
-        __version__ = "1.4.1"
+        __version__ = "1.4.2"
 
 try:
     from utils.brand import about_mark_path

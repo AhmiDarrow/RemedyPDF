@@ -47,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.4.1"
+        VERSION = "1.4.2"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 
@@ -401,7 +401,7 @@ class RemedyPDFApp(QMainWindow):
 
         theme_act = QAction("Cycle &Theme", self)
         theme_act.setShortcut("Ctrl+Shift+T")
-        theme_act.setToolTip("Cycle dark / light / high-contrast / sepia / night")
+        theme_act.setToolTip("Cycle normal / dark / light / high-contrast / sepia / night")
         theme_act.triggered.connect(self._toggle_theme)
         view_menu.addAction(theme_act)
 
@@ -1304,6 +1304,10 @@ class RemedyPDFApp(QMainWindow):
 
     def _apply_theme_page_colors(self, theme_name: str) -> None:
         """Push theme ink/paper into the engine so page text matches chrome."""
+        if (theme_name or "").lower() == "normal":
+            # No theme — keep the document's own colors (no recolor)
+            self.engine.clear_theme_page_colors()
+            return
         colors = page_colors_for_theme(theme_name)
         # Light theme keeps near-source look; still set explicit ink/paper for consistency
         self.engine.set_theme_page_colors(
