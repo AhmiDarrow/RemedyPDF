@@ -76,7 +76,7 @@ source.exclude_dirs = tests,build,dist,.git,.venv,venv,tools,.remedy-build,.buil
 version = {ver}
 requirements = python3,kivy,pyjnius,android,pillow,pymupdf,certifi
 orientation = all
-fullscreen = 0
+fullscreen = 1
 android.permissions = INTERNET
 android.api = 34
 android.minapi = 26
@@ -140,6 +140,7 @@ if __name__ == "__main__":
         main_py.write_text(
             "#!/usr/bin/env python3\n"
             '"""p4a entry — delegates to main_android."""\n'
+            "from src import __version__ as VERSION\n"
             "from main_android import main\n"
             "if __name__ == '__main__':\n"
             "    raise SystemExit(main())\n",
