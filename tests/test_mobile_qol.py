@@ -182,5 +182,5 @@ def test_buildozer_matches_version_and_orientation():
 
     text = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
     assert f"version = {__version__}" in text
-    assert "orientation = sensor" in text
+    assert "orientation = all" in text
     assert "fullscreen = 1" in text
