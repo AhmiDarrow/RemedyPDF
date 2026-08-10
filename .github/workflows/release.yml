@@ -111,7 +111,7 @@ jobs:
     needs: test-gate
     runs-on: ubuntu-latest
     # Fast by default: zip-only. Full Buildozer is opt-in (workflow_dispatch build_apk=true).
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_apk == 'true' && 180 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -183,7 +183,7 @@ jobs:
             "ndk;25.2.9519653" || true
 
           cd "${GITHUB_WORKSPACE}"
-          python build_android.py --prefer-apk || echo "WARN: Buildozer APK failed; keeping src zip"
+          python build_android.py --prefer-apk
           shopt -s nullglob
           for f in dist/RemedyPDF-*-android.apk bin/*.apk; do
             [ -f "$f" ] || continue

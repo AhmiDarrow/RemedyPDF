@@ -252,8 +252,9 @@ def build_android_apk(*, zip_only: bool = False, prefer_apk: bool = False) -> in
         print("  toolchain: buildozer + Android SDK detected — building APK")
         code = _run_buildozer()
         if code != 0:
-            print("Buildozer failed — src zip still published for sideload builds.")
-            return 0  # soft fail: zip is the fallback artifact
+            print(f"ERROR: Buildozer failed with exit code {code}", file=sys.stderr)
+            print("src zip still published for sideload builds.")
+            return code  # let CI see the failure; src zip was already published
         apk = _collect_apk(ver)
         if apk is None:
             print("WARN: Buildozer exited 0 but no APK found")
