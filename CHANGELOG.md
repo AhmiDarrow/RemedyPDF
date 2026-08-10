@@ -2,6 +2,36 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.1] — 2026-08-10
+
+### Fixed — Windows installer now ships `--onedir` (kills the auto-update crash)
+
+- **Root cause**: the released installer bundled a PyInstaller `--onefile`
+  exe (~97 MB) that re-extracts 2646 files to `%TEMP%\_MEIxxxxx` on *every*
+  launch and loads `python312.dll` from there. During the auto-update
+  relaunch (old process killed + fresh extraction + AV scan of a brand-new
+  binary) the bootloader can hit "Failed to load Python DLL 'python312.dll'.
+  LoadLibrary: The specified module could not be found." — a transient
+  onefile bootloader race, not a corrupt download (the archive itself
+  contains python312.dll + all VC runtimes, verified).
+- **Fix**: `build_windows.py` now builds the app as **onedir**
+  (`dist/RemedyPDF/` with `python312.dll` and every runtime DLL as real
+  files next to the exe) and `installer/remedypdf.iss` installs the whole
+  folder. Zero `%TEMP%` extraction, no bootloader race, faster startup.
+  The portable single-file exe asset is still built (onefile is fine for
+  manual download; the *installed* app is what auto-update replaces).
+- Portable `RemedyPDF-<ver>-windows.exe` and the setup installer are still
+  both published to the release.
+
+### Polish
+- `updater.py` cleanup helpers ignore stale `_MEI*` extraction dirs left by
+  older onefile builds (they accumulate in `%TEMP%`; onedir won't create them).
+
+### Tests
+- `tests/test_installer_onedir.py` — pins the build contract: the installer
+  must reference the onedir folder, `build_windows.py` must pass `--onedir`,
+  and the iss must install recursively.
+
 ## [1.4.0] — 2026-08-10
 
 ### Added — mobile QoL & polish pass (Android APK)

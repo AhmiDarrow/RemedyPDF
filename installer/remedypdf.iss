@@ -2,7 +2,7 @@
 ; Built by build_windows.py (defines MyAppVersion, DistDir)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.4.0"
+  #define MyAppVersion "1.4.1"
 #endif
 #ifndef DistDir
   #define DistDir "..\dist"
@@ -55,7 +55,9 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 Name: "quicklaunchicon"; Description: "Create a &Quick Launch shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-Source: "{#DistDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; onedir build — install the whole folder (exe + _internal DLLs) so python312.dll
+; lives next to the exe; no %TEMP% extraction, no onefile bootloader race.
+Source: "{#DistDir}\RemedyPDF\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\resources\icon.png"; DestDir: "{app}\resources"; Flags: ignoreversion
 Source: "..\resources\icon.ico"; DestDir: "{app}\resources"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\resources\logo_ui.png"; DestDir: "{app}\resources"; Flags: ignoreversion skipifsourcedoesntexist

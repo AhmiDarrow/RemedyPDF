@@ -47,7 +47,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.4.0"
+        VERSION = "1.4.1"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
 

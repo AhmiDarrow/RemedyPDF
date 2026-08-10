@@ -145,17 +145,88 @@ def build_onefile() -> Path:
     return out
 
 
+def build_onedir() -> Path:
+    """Build the app as onedir (dist/RemedyPDF/ folder) for the installer.
+
+    onedir keeps python312.dll + all runtime DLLs as real files next to the
+    exe — no %TEMP% extraction on launch, no onefile bootloader race, much
+    faster startup. This is the reliable shape to install.
+    """
+    icon_ico = ROOT / "resources" / "icon.ico"
+    icon_png = ROOT / "resources" / "icon.png"
+    icon_arg = str(icon_ico if icon_ico.is_file() else icon_png)
+    sep = ";" if sys.platform == "win32" else ":"
+    resources_src = str((ROOT / "resources").resolve())
+    print("Building Windows onedir (RemedyPDF)…")
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--name",
+        "RemedyPDF",
+        "--onedir",
+        "--windowed",
+        f"--add-data={resources_src}{sep}resources",
+        "--paths",
+        str(ROOT),
+        "--hidden-import",
+        "src",
+        "--hidden-import",
+        "src.core.app",
+        "--hidden-import",
+        "src.core.pdf_engine",
+        "--hidden-import",
+        "src.ui.about",
+        "--hidden-import",
+        "src.ui.theme",
+        "--hidden-import",
+        "src.ui.widgets",
+        "--hidden-import",
+        "src.utils.brand",
+        "--hidden-import",
+        "src.utils.updater",
+        "--hidden-import",
+        "src.utils.mobile",
+        "--hidden-import",
+        "src.utils.paths",
+        "--collect-all",
+        "PyQt5",
+        "--collect-all",
+        "fitz",
+        "--icon",
+        icon_arg,
+        "--distpath",
+        str(DIST),
+        "--workpath",
+        str(ROOT / "build" / "pyinstaller"),
+        "--specpath",
+        str(ROOT / "build"),
+        str(ROOT / "src" / "main.py"),
+    ]
+    result = subprocess.run(cmd, cwd=str(ROOT))
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+    out = DIST / "RemedyPDF" / "RemedyPDF.exe"
+    if not out.is_file():
+        print(f"ERROR: missing {out}", file=sys.stderr)
+        sys.exit(1)
+    print(f"OK onedir: {out} ({out.stat().st_size} bytes)")
+    return out
+
+
 def build_inno_installer(version: str | None = None) -> Path | None:
     """Compile installer/remedypdf.iss → dist/RemedyPDF-{ver}-windows-setup.exe."""
     ver = version or _version()
-    exe = DIST / "RemedyPDF.exe"
+    exe = DIST / "RemedyPDF" / "RemedyPDF.exe"
     if not exe.is_file():
-        print("ERROR: build onefile first (dist/RemedyPDF.exe missing)", file=sys.stderr)
+        print("ERROR: build onedir first (dist/RemedyPDF/RemedyPDF.exe missing)", file=sys.stderr)
         return None
 
     iscc = _ensure_inno()
     if not iscc:
-        print("WARN: ISCC unavailable — skipping Setup.exe (onefile still OK)")
+        print("WARN: ISCC unavailable — skipping Setup.exe (onedir still OK)")
         return None
 
     iss = ROOT / "installer" / "remedypdf.iss"
@@ -192,7 +263,8 @@ def build_inno_installer(version: str | None = None) -> Path | None:
 def build_windows_installer() -> None:
     ver = _version()
     print(f"=== RemedyPDF Windows build v{ver} ===")
-    build_onefile()
+    build_onedir()
+    build_onefile()  # portable single-file asset (still onefile — fine for manual use)
     setup = build_inno_installer(ver)
     # Versioned onefile copy for release channel
     versioned = DIST / f"RemedyPDF-{ver}-windows.exe"

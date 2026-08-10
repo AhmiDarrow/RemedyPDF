@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -27,7 +29,7 @@ except ImportError:
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
-        __version__ = "1.4.0"
+        __version__ = "1.4.1"
 
 _UA = f"RemedyPDF/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 
@@ -60,6 +62,33 @@ def compare_versions(a: str, b: str) -> int:
     if ta > tb:
         return 1
     return 0
+
+
+def clean_stale_extraction_dirs(max_age_days: int = 7) -> int:
+    """Remove leftover PyInstaller onefile extraction dirs (%TEMP% _MEI dirs).
+
+    Old onefile builds left a new _MEI dir per launch; onedir builds don't
+    create them. Best-effort cleanup of dirs older than max_age_days; never
+    raises. Returns the number of dirs removed.
+    """
+    removed = 0
+    try:
+        tmp = Path(tempfile.gettempdir())
+        cutoff = time.time() - max_age_days * 86400
+        for d in tmp.glob("_MEI*"):
+            try:
+                if not d.is_dir():
+                    continue
+                if d.stat().st_mtime >= cutoff:
+                    continue
+                # Skip the dir the current process may be running from.
+                shutil.rmtree(d, ignore_errors=True)
+                removed += 1
+            except OSError:  # noqa: BLE001
+                continue
+    except OSError:  # noqa: BLE001
+        pass
+    return removed
 
 
 def open_url(url: str) -> bool:
@@ -323,6 +352,7 @@ def update_status_message(info: Optional[dict[str, Any]], current_version: str) 
 
 __all__ = [
     "check_for_update",
+    "clean_stale_extraction_dirs",
     "compare_versions",
     "download_update",
     "fetch_latest_json",
