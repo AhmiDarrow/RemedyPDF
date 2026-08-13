@@ -140,9 +140,13 @@ def test_rotate_view_size_and_edit_mapping(tmp_path):
     eng = PDFEngine()
     assert eng.open(_make_pdf(tmp_path, pages=1))
     assert eng.get_view_size_at_zoom(1.0) == pytest.approx((300.0, 400.0))
+    # get_view_size must match at_zoom(1.0) (canvas metrics / hit-testing)
+    assert eng.get_view_size() == pytest.approx(eng.get_view_size_at_zoom(1.0))
     eng.rotate_right()
     assert eng.rotation == 90
     assert eng.get_view_size_at_zoom(1.0) == pytest.approx((400.0, 300.0))
+    assert eng.get_view_size() == pytest.approx((400.0, 300.0))
+    assert eng.get_view_size() == pytest.approx(eng.get_view_size_at_zoom(1.0))
     # View point (200, 150) ↔ page point (150, 200) under clockwise rotation
     page, px, py = eng.map_view_xy_to_page(200.0, 150.0)
     assert page == 0
@@ -152,6 +156,7 @@ def test_rotate_view_size_and_edit_mapping(tmp_path):
     eng.rotate_right()
     assert eng.rotation == 180
     assert eng.get_view_size_at_zoom(1.0) == pytest.approx((300.0, 400.0))
+    assert eng.get_view_size() == pytest.approx(eng.get_view_size_at_zoom(1.0))
     eng.rotate_left()
     assert eng.rotation == 90
     assert eng.get_view_size_at_zoom(1.0) == pytest.approx((400.0, 300.0))
@@ -159,6 +164,7 @@ def test_rotate_view_size_and_edit_mapping(tmp_path):
     eng.rotate_left()
     assert eng.rotation == 270
     assert eng.get_view_size_at_zoom(1.0) == pytest.approx((400.0, 300.0))
+    assert eng.get_view_size() == pytest.approx((400.0, 300.0))
     eng.close()
 
 

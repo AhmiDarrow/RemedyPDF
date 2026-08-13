@@ -196,6 +196,23 @@ def test_coarse_zoom(sample_pdf: Path):
     eng.close()
 
 
+def test_book_mode_clears_cache_byte_counter(multi_page_pdf: Path):
+    """Toggling book mode must zero _cache_bytes or the LRU budget drifts."""
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(multi_page_pdf))
+    eng.render_view_rgb(zoom=2.0)
+    assert eng._cache_bytes > 0
+    eng.set_book_mode(True)
+    assert eng._page_cache == {}
+    assert eng._cache_bytes == 0
+    eng.render_view_rgb(zoom=2.0)
+    assert eng._cache_bytes > 0
+    eng.set_book_cover_alone(True)
+    assert eng._page_cache == {}
+    assert eng._cache_bytes == 0
+    eng.close()
+
+
 def test_book_mode_spread_pages(multi_page_pdf: Path):
     eng = PDFEngine()
     eng.open(str(multi_page_pdf))
@@ -570,3 +587,22 @@ def test_gray_pixmap_converts_fast_and_correct(tmp_path: Path):
     assert len(data) == w * h * 3  # RGB24, not gray
     assert dt < 1.0, f"gray convert too slow: {dt * 1000:.0f} ms"
     eng.close()
+
+
+def test_filter_clear_zeros_cache_bytes():
+    """Appearance toggles must not leave stale _cache_bytes after clear."""
+    eng = PDFEngine()
+    eng._page_cache[("k",)] = {"w": 100, "h": 100, "rgb": b"\x00" * 30000}
+    eng._cache_bytes = eng._item_bytes(eng._page_cache[("k",)])
+    assert eng._cache_bytes > 0
+    eng.set_page_filter("sepia")
+    assert eng._page_cache == {}
+    assert eng._cache_bytes == 0
+    eng._page_cache[("k2",)] = {"w": 10, "h": 10, "rgb": b"\x00" * 300}
+    eng._cache_bytes = 9999
+    eng.set_brightness(1.1)
+    assert eng._cache_bytes == 0
+    eng._page_cache[("k3",)] = {"w": 5, "h": 5, "rgb": b"\x00" * 75}
+    eng._cache_bytes = 42
+    eng.reset_page_appearance()
+    assert eng._cache_bytes == 0

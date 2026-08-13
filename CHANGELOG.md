@@ -2,6 +2,43 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.3] — 2026-08-11
+
+### Fixed — auto-update integrity, cancel, and cache accounting
+
+- **Installer SHA-256 verify** — `download_update` / `install_update` check
+  digests when `latest.json` (or the release channel) publishes them; mismatch
+  deletes the temp file and aborts instead of running a bad binary.
+- **Real Cancel on Download & install** — progress dialog Cancel aborts the
+  worker mid-stream; late success cannot quit the app after cancel; partial
+  downloads are cleaned up.
+- **Release page vs installer URL** — `check_for_update` keeps `url` /
+  `html_url` as the GitHub release page; the setup exe stays on
+  `platforms` / `find_installer_url` so **Open release** never opens a raw
+  `.exe`.
+- **Honest install errors** — hash / network / launch failures raise with the
+  real reason instead of the misleading “No Windows installer available”.
+- **View size after rotation** — `get_view_size()` applies the same rotation
+  transform as `get_view_size_at_zoom()` so hit-testing matches the pixmap.
+- **LRU `_cache_bytes` drift** — book mode, theme, filter, brightness/contrast,
+  and edit cache clears zero the byte budget with the dict.
+- **Pre-release version order** — `compare_versions` orders
+  `alpha < beta < rc < release` and numbered pre ids (`1.4.2-beta.1` <
+  `1.4.2-beta.2` < `1.4.2`).
+
+### Added — release channel digests
+
+- `scripts/write_latest_json.py` accepts `--setup-sha256` / `--exe-sha256` /
+  `--apk-sha256` and embeds them under each platform entry.
+- `.github/workflows/release.yml` hashes staged setup/portable/apk assets and
+  writes digests into `latest.json` (with backfill if needed).
+
+### Tests
+- Updater: cancel, SHA mismatch, release-page URL, prerelease ordering, schema
+  digests.
+- PDF engine: rotation view size, filter cache-bytes.
+- QoL nav: rotation-aligned view metrics.
+
 ## [1.4.2] — 2026-08-10
 
 ### Changed

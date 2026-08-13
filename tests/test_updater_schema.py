@@ -17,6 +17,7 @@ import write_latest_json  # noqa: E402  (workflow helper under scripts/)
 from utils.updater import (  # noqa: E402
     check_for_update,
     fetch_latest_json,
+    find_installer_sha256,
     find_installer_url,
 )
 
@@ -86,6 +87,48 @@ def test_find_installer_url_prefers_latest_json_windows(latest_payload):
         "https://github.com/AhmiDarrow/RemedyPDF/releases/download/"
         "v9.9.9/RemedyPDF-9.9.9-windows-setup.exe"
     )
+
+
+def test_write_latest_json_emits_sha256(tmp_path, monkeypatch):
+    """Release helper must publish installer digest for client-side verify."""
+    out = tmp_path / "latest.json"
+    digest = "a" * 64
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "write_latest_json.py",
+            "--version", "8.8.8",
+            "--tag", "v8.8.8",
+            "--repo", "AhmiDarrow/RemedyPDF",
+            "--setup-name", "RemedyPDF-8.8.8-windows-setup.exe",
+            "--exe-name", "RemedyPDF-8.8.8-windows.exe",
+            "--setup-sha256", digest,
+            "--out", str(out),
+        ],
+    )
+    assert write_latest_json.main() == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["sha256"] == digest
+    assert payload["installer_sha256"] == digest
+    win = payload["platforms"]["windows-x86_64"]
+    assert win["sha256"] == digest
+    assert win["signature"] == digest
+
+    class FakeResp:
+        def read(self, _n=None):
+            return json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("utils.updater.urlopen", lambda *a, **k: FakeResp())
+    info = check_for_update(current_version="1.0.0")
+    assert info is not None
+    assert find_installer_sha256(info) == digest
 
 
 def test_platform_android_src_zip_fallback_present(latest_payload):

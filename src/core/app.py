@@ -33,6 +33,7 @@ from .pdf_engine import OPEN_FILTER, SAVE_FILTER, PDFEngine, SUPPORTED_EXTENSION
 try:
     from src import (
         GITHUB_OWNER,
+        GITHUB_RELEASES_URL,
         GITHUB_REPO,
         __app_name__ as APP_NAME,
         __version__ as VERSION,
@@ -41,15 +42,17 @@ except ImportError:  # script-style / flat src on path
     try:
         from __init__ import (  # type: ignore
             GITHUB_OWNER,
+            GITHUB_RELEASES_URL,
             GITHUB_REPO,
             __app_name__ as APP_NAME,
             __version__ as VERSION,
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.4.2"
+        VERSION = "1.4.3"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
+        GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
 
 try:
     from ui.theme import (
@@ -75,6 +78,7 @@ try:
         touch_target_px,
     )
     from utils.updater import (
+        UpdateCancelled,
         check_for_update,
         find_installer_url,
         format_update_message,
@@ -105,6 +109,7 @@ except ImportError:  # script-style imports
         touch_target_px,
     )
     from src.utils.updater import (  # type: ignore
+        UpdateCancelled,
         check_for_update,
         find_installer_url,
         format_update_message,
@@ -144,23 +149,38 @@ class _UpdateInstallWorker(QThread):
     progress = pyqtSignal(int, int)  # done, total
     finished_ok = pyqtSignal(str)  # installer path
     failed = pyqtSignal(str)
+    cancelled = pyqtSignal()
 
     def __init__(self, info: dict, parent=None) -> None:
         super().__init__(parent)
         self._info = info
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        """Soft-cancel: download_update polls this between chunks."""
+        self._cancel_requested = True
 
     def run(self) -> None:  # noqa: D401
         try:
             path = install_update(
                 self._info,
                 progress=lambda done, total: self.progress.emit(done, total),
+                cancel_check=lambda: self._cancel_requested,
             )
-            if path:
+            if self._cancel_requested:
+                self.cancelled.emit()
+            elif path:
                 self.finished_ok.emit(path)
             else:
+                # install_update returns None only when no installer URL exists
                 self.failed.emit("No Windows installer available for this release.")
+        except UpdateCancelled:
+            self.cancelled.emit()
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(str(exc))
+            if self._cancel_requested:
+                self.cancelled.emit()
+            else:
+                self.failed.emit(str(exc) or "Update install failed")
 
 
 class RemedyPDFApp(QMainWindow):
@@ -1603,7 +1623,15 @@ class RemedyPDFApp(QMainWindow):
         if clicked is install_btn:
             self._download_and_install(data)
         elif clicked is open_btn:
-            url = str(data.get("url") or "")
+            # Prefer html_url (release page); never open a raw .exe asset URL.
+            url = str(data.get("html_url") or data.get("url") or "")
+            if url.lower().endswith(".exe"):
+                tag = str(data.get("tag") or "").lstrip("v")
+                url = (
+                    f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tag/v{tag}"
+                    if tag
+                    else GITHUB_RELEASES_URL
+                )
             if url:
                 open_url(url)
 
@@ -1655,15 +1683,38 @@ class RemedyPDFApp(QMainWindow):
         self._progress.setMinimumDuration(300)
         self._progress.setAutoClose(False)
         self._progress.setAutoReset(False)
+        self._progress.setCancelButtonText("Cancel")
+        # Keep dialog open until we finish/fail/cancel — user Cancel must
+        # abort the worker, not only dismiss the UI.
+        self._progress.setCanceledOnClose(True)
         worker = _UpdateInstallWorker(info, self)
         worker.progress.connect(self._on_install_progress)
         worker.finished_ok.connect(self._on_install_done)
         worker.failed.connect(self._on_install_failed)
+        worker.cancelled.connect(self._on_install_cancelled)
+        self._progress.canceled.connect(self._on_install_cancel_requested)
         self._install_worker = worker
         worker.start()
+        # QProgressDialog only auto-pops after minimumDuration if the event
+        # loop sees value changes — show immediately so Cancel is available.
+        self._progress.show()
+
+    def _on_install_cancel_requested(self) -> None:
+        """Progress dialog Cancel / Esc — ask the worker to abort mid-stream."""
+        worker = getattr(self, "_install_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.request_cancel()
+            prog = getattr(self, "_progress", None)
+            if prog is not None:
+                prog.setLabelText("Cancelling download…")
+                prog.setCancelButton(None)  # prevent double-cancel thrash
 
     def _on_install_progress(self, done: int, total: int) -> None:
         if getattr(self, "_progress", None) is None:
+            return
+        if self._progress.wasCanceled():
+            # Belt-and-suspenders if canceled fired before connect settled
+            self._on_install_cancel_requested()
             return
         if total > 0:
             self._progress.setMaximum(max(total, 1))
@@ -1672,6 +1723,11 @@ class RemedyPDFApp(QMainWindow):
             self._progress.setRange(0, 0)  # indeterminate
 
     def _on_install_done(self, path: str) -> None:
+        # Ignore late finished_ok if user already cancelled
+        worker = getattr(self, "_install_worker", None)
+        if worker is not None and getattr(worker, "_cancel_requested", False):
+            self._on_install_cancelled()
+            return
         if getattr(self, "_progress", None) is not None:
             self._progress.close()
         self.statusBar().showMessage(
@@ -1697,7 +1753,17 @@ class RemedyPDFApp(QMainWindow):
         if app is not None:
             app.quit()
 
+    def _on_install_cancelled(self) -> None:
+        if getattr(self, "_progress", None) is not None:
+            self._progress.close()
+            self._progress = None
+        self.statusBar().showMessage("Update download cancelled.", 4000)
+
     def _on_install_failed(self, err: str) -> None:
+        worker = getattr(self, "_install_worker", None)
+        if worker is not None and getattr(worker, "_cancel_requested", False):
+            self._on_install_cancelled()
+            return
         if getattr(self, "_progress", None) is not None:
             self._progress.close()
         QMessageBox.warning(
@@ -1706,8 +1772,11 @@ class RemedyPDFApp(QMainWindow):
             f"Could not install the update:\n{err}\n\n"
             "Open the release page to download it manually.",
         )
-        if getattr(self, "_pending_update_url", None):
-            open_url(self._pending_update_url)
+        fallback = str(getattr(self, "_pending_update_url", None) or "")
+        if fallback.lower().endswith(".exe"):
+            fallback = GITHUB_RELEASES_URL
+        if fallback:
+            open_url(fallback)
 
     def show_shortcuts(self) -> None:
         QMessageBox.information(

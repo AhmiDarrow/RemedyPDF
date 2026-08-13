@@ -15,16 +15,23 @@ Modeled after SecretSticky / SecretFolder: About panel + release channel on GitH
 
 When a newer version is found, the app offers **Download & install** (not just a
 browser link). `install_update()` streams the Windows Inno Setup installer to the
-temp dir (`RemedyPDF-<tag>-setup.exe`) with a progress dialog, then launches it
-silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-`) and quits the app so
-the installer can replace files. The setup installs per-user (no admin needed).
+temp dir (`RemedyPDF-<tag>-setup.exe`) with a progress dialog (Cancel aborts the
+download), optionally verifies **SHA-256** when the channel publishes a digest,
+then launches the installer silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+/SP- /CURRENTUSER`) and quits the app so the installer can replace files. The
+setup installs per-user (no admin needed).
 
 - `find_installer_url(info)` — resolves the installer URL from
   `latest.json` `platforms.windows-x86_64.url`, else GitHub API assets
   (setup → portable → generic `.exe`)
-- `download_update(url, dest, progress=…)` — streamed download with progress
+- `find_installer_sha256(info)` — optional digest from the same channel
+- `download_update(url, dest, progress=…, cancel_check=…, expected_sha256=…)` —
+  streamed download with progress, cancel, and integrity check
 - `launch_installer(path)` — detached silent Inno Setup run
-- `install_update(info, dest_dir=…)` — download + launch, soft-fail (never raises)
+- `install_update(info, dest_dir=…, cancel_check=…)` — download + verify +
+  launch; raises `UpdateCancelled` or `OSError` with a clear reason on failure
+- `check_for_update` keeps `url` / `html_url` as the **release page**; the
+  installer binary stays on `platforms` / `find_installer_url`
 
 Version source of truth: `src/__init__.py` → `__version__`.
 
@@ -33,16 +40,18 @@ Version source of truth: `src/__init__.py` → `__version__`.
 Tag push `v*`:
 
 1. `pytest -q` gate
-2. `python build_windows.py` → `dist/RemedyPDF.exe`
-3. Upload exe + generate `latest.json`:
+2. `python build_windows.py` → onedir + Inno setup + portable exe
+3. Hash staged assets and generate `latest.json` (digests included when present):
    ```json
    {
-     "version": "1.2.0",
+     "version": "1.4.3",
      "notes": "…",
      "pub_date": "…",
+     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.3",
      "platforms": {
        "windows-x86_64": {
-         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.2.0/RemedyPDF-windows-setup.exe"
+         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.3/RemedyPDF-1.4.3-windows-setup.exe",
+         "sha256": "…"
        }
      }
    }

@@ -278,6 +278,23 @@ jobs:
           if [ ! -f "dist/release/$EXE" ] && [ -f dist/release/RemedyPDF.exe ]; then
             cp dist/release/RemedyPDF.exe "dist/release/$EXE"
           fi
+          # SHA-256 of staged installers (clients verify before silent install)
+          SETUP_SHA=""
+          EXE_SHA=""
+          APK_SHA=""
+          if [ -f "dist/release/$SETUP" ]; then
+            SETUP_SHA=$(sha256sum "dist/release/$SETUP" | awk '{print $1}')
+          fi
+          if [ -f "dist/release/$EXE" ]; then
+            EXE_SHA=$(sha256sum "dist/release/$EXE" | awk '{print $1}')
+          fi
+          for f in dist/release/*.apk; do
+            if [ -f "$f" ]; then APK_SHA=$(sha256sum "$f" | awk '{print $1}'); break; fi
+          done
+          SHA_ARGS=()
+          if [ -n "$SETUP_SHA" ]; then SHA_ARGS+=(--setup-sha256 "$SETUP_SHA"); fi
+          if [ -n "$EXE_SHA" ]; then SHA_ARGS+=(--exe-sha256 "$EXE_SHA"); fi
+          if [ -n "$APK_SHA" ]; then SHA_ARGS+=(--apk-sha256 "$APK_SHA"); fi
           # Prefer real APK URL in latest.json when present; else point android-arm64 at src zip
           python scripts/write_latest_json.py \
             --version "$VER" \
@@ -287,10 +304,11 @@ jobs:
             --exe-name "$EXE" \
             --out dist/release/latest.json \
             "${APK_ARGS[@]}" \
-            "${AZIP_ARGS[@]}"
+            "${AZIP_ARGS[@]}" \
+            "${SHA_ARGS[@]}"
           # If no APK, rewrite android-arm64 primary url to src zip so autoupdate is not a 404
           python - <<'PY'
-          import json, glob, pathlib
+          import json, glob, pathlib, hashlib
           p = pathlib.Path("dist/release/latest.json")
           data = json.loads(p.read_text(encoding="utf-8"))
           apks = list(pathlib.Path("dist/release").glob("*.apk"))
@@ -315,6 +333,18 @@ jobs:
               print("latest.json android-arm64 -> src zip", z)
           else:
               print("latest.json left as-is; apks=", [a.name for a in apks])
+          # Ensure windows sha256 survived (belt-and-suspenders if script args empty)
+          win = data.setdefault("platforms", {}).setdefault("windows-x86_64", {})
+          setup_name = (data.get("assets") or {}).get("windows_setup") or ""
+          setup_path = pathlib.Path("dist/release") / setup_name if setup_name else None
+          if setup_path and setup_path.is_file() and not win.get("sha256"):
+              h = hashlib.sha256(setup_path.read_bytes()).hexdigest()
+              win["sha256"] = h
+              win["signature"] = h
+              data["sha256"] = h
+              data["installer_sha256"] = h
+              p.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+              print("latest.json windows sha256 backfilled", h[:16])
           print(p.read_text(encoding="utf-8"))
           PY
           cp resources/icon.png dist/release/icon.png || true

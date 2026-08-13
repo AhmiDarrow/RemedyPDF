@@ -250,6 +250,7 @@ class PDFEngine:
             else:
                 self.current_page = self._spread_left(self.current_page)
         self._page_cache.clear()
+        self._cache_bytes = 0
 
     def set_book_cover_alone(self, enabled: bool) -> None:
         """Optional: show cover alone, then (1,2)/(3,4)… Default is both sides."""
@@ -257,6 +258,7 @@ class PDFEngine:
         if self.book_mode and self.doc is not None and not self.book_cover_alone:
             self.current_page = self._spread_left(self.current_page)
         self._page_cache.clear()
+        self._cache_bytes = 0
 
     def toggle_book_mode(self) -> bool:
         self.set_book_mode(not self.book_mode)
@@ -388,6 +390,7 @@ class PDFEngine:
         self.theme_recolor = bool(enabled) and (new_ink is not None or new_paper is not None)
         if changed:
             self._page_cache.clear()
+            self._cache_bytes = 0
 
     def clear_theme_page_colors(self) -> None:
         """Disable theme page recolor (source document colors)."""
@@ -396,6 +399,7 @@ class PDFEngine:
             self.page_paper = None
             self.theme_recolor = False
             self._page_cache.clear()
+            self._cache_bytes = 0
 
     def set_page_filter(self, name: str) -> str:
         """Set view filter: none | invert | sepia | grayscale | warm | cool."""
@@ -405,16 +409,19 @@ class PDFEngine:
         if key != self.page_filter:
             self.page_filter = key
             self._page_cache.clear()
+            self._cache_bytes = 0
         return self.page_filter
 
     def set_brightness(self, value: float) -> float:
         self.brightness = max(0.5, min(1.5, float(value)))
         self._page_cache.clear()
+        self._cache_bytes = 0
         return self.brightness
 
     def set_contrast(self, value: float) -> float:
         self.contrast = max(0.5, min(1.5, float(value)))
         self._page_cache.clear()
+        self._cache_bytes = 0
         return self.contrast
 
     def adjust_brightness(self, delta: float) -> float:
@@ -429,6 +436,7 @@ class PDFEngine:
         self.brightness = 1.0
         self.contrast = 1.0
         self._page_cache.clear()
+        self._cache_bytes = 0
 
     def _appearance_key(self) -> tuple:
         """Cache key fragment for current view filters + theme recolor."""
@@ -931,11 +939,16 @@ class PDFEngine:
         return (right, lx, ly)
 
     def get_view_size(self, page: Optional[int] = None) -> Tuple[float, float]:
-        """Logical size of current view in points (spread-aware)."""
+        """Logical size of current view in points (spread-aware, rotation-aware).
+
+        Must stay in lockstep with ``get_view_size_at_zoom(1.0)`` so canvas
+        hit-testing / set_page_metrics match the rendered pixmap after
+        view-only rotation (90/270 swap width and height).
+        """
         pages = self.spread_pages(page)
         if not pages:
             return (0.0, 0.0)
-        sizes = [self.get_page_size(i) for i in pages]
+        sizes = [self._rotated_size(*self.get_page_size(i)) for i in pages]
         gap_pts = self.spread_gap_pts() if len(pages) > 1 else 0.0
         w = sum(s[0] for s in sizes) + gap_pts * (len(pages) - 1)
         h = max(s[1] for s in sizes)
@@ -962,6 +975,7 @@ class PDFEngine:
             pg = self.doc[idx]
             pg.insert_text((x, y), text, fontsize=fontsize, color=color)
             self._page_cache.clear()
+            self._cache_bytes = 0
             return True
         except Exception as exc:  # noqa: BLE001
             print(f"Error adding text: {exc}")
@@ -991,6 +1005,7 @@ class PDFEngine:
                 box = fitz.Rect(*rect)
             pg.insert_image(box, filename=str(img))
             self._page_cache.clear()
+            self._cache_bytes = 0
             return True
         except Exception as exc:  # noqa: BLE001
             print(f"Error adding image: {exc}")
