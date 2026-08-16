@@ -2,7 +2,7 @@
 ; Built by build_windows.py (defines MyAppVersion, DistDir)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.4.3"
+  #define MyAppVersion "1.4.4"
 #endif
 #ifndef DistDir
   #define DistDir "..\dist"
