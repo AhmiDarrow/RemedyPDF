@@ -160,6 +160,36 @@ def test_add_text_and_save(sample_pdf: Path, tmp_path: Path):
     eng.close()
 
 
+def test_save_in_place_keeps_document_open(sample_pdf: Path):
+    """Saving onto the currently-open path must succeed and stay usable."""
+    eng = PDFEngine()
+    assert eng.open(str(sample_pdf))
+    assert eng.add_text("In-place", page=0, x=72, y=140, fontsize=12) is True
+    assert eng.save(str(sample_pdf)) is True
+    assert eng.is_open
+    assert eng.page_count >= 1
+    rgb = eng.render_view_rgb()
+    assert rgb is not None and rgb[0] > 0 and rgb[1] > 0
+    # No leftover temp sibling
+    leftovers = list(sample_pdf.parent.glob("*.__remedy_save__.pdf"))
+    assert leftovers == []
+    eng.close()
+
+
+def test_cache_entry_cap_is_inclusive(multi_page_pdf: Path):
+    """_cache_max entries are allowed; only max+1 forces eviction."""
+    eng = PDFEngine(zoom=1.0)
+    eng.open(str(multi_page_pdf))
+    eng.MAX_CACHE_BYTES = 10**12  # only entry cap binds
+    eng._cache_max = 2
+    eng.render_view_rgb(page=0, zoom=1.0)
+    eng.render_view_rgb(page=1, zoom=1.0)
+    assert len(eng._page_cache) == 2
+    eng.render_view_rgb(page=2, zoom=1.0)
+    assert len(eng._page_cache) == 2
+    eng.close()
+
+
 def test_set_page_bounds(sample_pdf: Path):
     eng = PDFEngine()
     eng.open(str(sample_pdf))

@@ -2,6 +2,26 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.4] — 2026-03-22
+
+### Fixed — review pass
+
+- **Frozen resource paths** — `utils.paths.project_root` / `resources_dir` now
+  resolve under `sys._MEIPASS` / the onedir exe folder when packaged, so icons
+  and About assets load in PyInstaller builds (dev tree path still used in
+  source checkouts).
+- **Save in place** — saving back onto the currently-open PDF writes a temp
+  sibling, closes the handle, replaces, and reopens so Windows/MuPDF no longer
+  fail with “save to original must be incremental”; the document stays open
+  and renderable after Save.
+- **LRU entry cap off-by-one** — cache eviction uses `len > _cache_max` so the
+  configured max entries are actually kept (was evicting one early).
+
+### Tests
+- Frozen `resources_dir` under mocked `_MEIPASS`.
+- Save-in-place keeps the document open and leaves no temp sibling.
+- Cache entry cap is inclusive.
+
 ## [1.4.3] — 2026-08-11
 
 ### Fixed — auto-update integrity, cancel, and cache accounting

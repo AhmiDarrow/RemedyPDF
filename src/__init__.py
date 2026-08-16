@@ -1,7 +1,7 @@
 # RemedyPDF - PDF Viewer and Editor
 """RemedyPDF package metadata — single source of truth for version."""
 
-__version__ = "1.4.3"
+__version__ = "1.4.4"
 __author__ = "Ahmi Darrow"
 __app_name__ = "RemedyPDF"
 

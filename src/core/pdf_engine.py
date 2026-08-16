@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -648,9 +649,11 @@ class PDFEngine:
         # Evict oldest until under BOTH the byte budget and the entry cap.
         # Runs after inserts AND updates so a single oversized render is
         # dropped instead of silently blowing past MAX_CACHE_BYTES.
+        # Use > (not >=) so the entry cap is inclusive: _cache_max live entries
+        # are allowed; only the (max+1)th insert forces an eviction.
         while len(self._page_cache) and (
             self._cache_bytes > self.MAX_CACHE_BYTES
-            or len(self._page_cache) >= self._cache_max
+            or len(self._page_cache) > self._cache_max
         ):
             try:
                 _, victim = self._page_cache.popitem(last=False)
@@ -1012,29 +1015,98 @@ class PDFEngine:
             return False
 
     def save(self, path: Optional[str] = None) -> bool:
-        """Save/export the document. Non-PDF sources export to PDF when needed."""
+        """Save/export the document. Non-PDF sources export to PDF when needed.
+
+        Saving back onto the currently-open path uses a temp sibling + replace
+        so MuPDF never has to rewrite a file it still holds open (common
+        Windows failure: "save to original must be incremental").
+        """
         if self.doc is None:
             return False
         dest = path or self.path
         if not dest:
             return False
         dest_path = Path(dest)
+        open_path: Optional[Path] = None
         try:
             # If original wasn't PDF and destination is PDF (or unspecified non-pdf), export
             if dest_path.suffix.lower() != ".pdf" and not self.is_pdf:
                 dest_path = dest_path.with_suffix(".pdf")
                 dest = str(dest_path)
-            if self.is_pdf and dest_path.suffix.lower() == ".pdf":
-                self.doc.save(dest, incremental=False, encryption=fitz.PDF_ENCRYPT_NONE)
-            else:
-                # Convert / export via write
-                self.doc.save(dest, incremental=False, encryption=fitz.PDF_ENCRYPT_NONE)
-            self.path = str(dest)
-            return True
-        except Exception as exc:  # noqa: BLE001
-            # Fallback: export pages to a fresh PDF
+
+            if self.path:
+                try:
+                    open_path = Path(self.path).resolve()
+                except OSError:
+                    open_path = Path(self.path)
             try:
-                return self._export_as_pdf(str(dest_path.with_suffix(".pdf")))
+                target = dest_path.resolve()
+            except OSError:
+                target = dest_path
+            same_as_open = open_path is not None and target == open_path
+
+            if same_as_open:
+                # Write beside the open file, then atomically replace.
+                tmp = dest_path.with_name(dest_path.stem + ".__remedy_save__.pdf")
+                try:
+                    self.doc.save(
+                        str(tmp),
+                        incremental=False,
+                        encryption=fitz.PDF_ENCRYPT_NONE,
+                    )
+                    # On Windows, replace may fail while the source handle is
+                    # still mapped — close, swap, reopen so the UI keeps working.
+                    was_page = self.current_page
+                    was_format = self._format
+                    try:
+                        self.doc.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self.doc = None
+                    os.replace(str(tmp), str(dest_path))
+                    self.doc = fitz.open(str(dest_path))
+                    self.path = str(dest_path)
+                    self.page_count = len(self.doc)
+                    self.current_page = min(was_page, max(0, self.page_count - 1))
+                    self._format = was_format or dest_path.suffix.lower().lstrip(".")
+                    self._page_cache.clear()
+                    self._cache_bytes = 0
+                    return True
+                except Exception:
+                    # Best-effort cleanup of the temp sibling
+                    try:
+                        if tmp.is_file():
+                            tmp.unlink()
+                    except OSError:
+                        pass
+                    # Re-open original if we closed it mid-flight
+                    if self.doc is None and open_path is not None and open_path.is_file():
+                        try:
+                            self.doc = fitz.open(str(open_path))
+                            self.path = str(open_path)
+                            self.page_count = len(self.doc)
+                        except Exception:  # noqa: BLE001
+                            self.doc = None
+                            self.path = None
+                            self.page_count = 0
+                    raise
+            else:
+                self.doc.save(
+                    dest, incremental=False, encryption=fitz.PDF_ENCRYPT_NONE
+                )
+                self.path = str(dest)
+                return True
+        except Exception as exc:  # noqa: BLE001
+            # Fallback: export pages to a fresh PDF (never onto the open path)
+            try:
+                fallback = dest_path.with_suffix(".pdf")
+                try:
+                    fb_res = fallback.resolve()
+                except OSError:
+                    fb_res = fallback
+                if open_path is not None and fb_res == open_path:
+                    fallback = dest_path.with_name(dest_path.stem + "-export.pdf")
+                return self._export_as_pdf(str(fallback))
             except Exception as exc2:  # noqa: BLE001
                 print(f"Error saving document: {exc} / {exc2}")
                 return False
