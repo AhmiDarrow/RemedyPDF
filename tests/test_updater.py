@@ -260,13 +260,16 @@ def test_launch_installer_silent_flags(monkeypatch, tmp_path):
 def test_install_update_spawns(monkeypatch, tmp_path):
     import utils.updater as upd
 
+    payload = b"MZ\x90\x00"
+    digest = hashlib.sha256(payload).hexdigest()
+
     class FakeResp:
-        headers = {"Content-Length": "4"}
+        headers = {"Content-Length": str(len(payload))}
 
         def read(self, _n):
             if not hasattr(self, "_sent"):
                 self._sent = True
-                return b"MZ\x90\x00"
+                return payload
             return b""
 
         def __enter__(self):
@@ -280,7 +283,10 @@ def test_install_update_spawns(monkeypatch, tmp_path):
     info = {
         "tag": "2.0.0",
         "platforms": {
-            "windows-x86_64": {"url": "https://x/RemedyPDF-2.0.0-windows-setup.exe"}
+            "windows-x86_64": {
+                "url": "https://x/RemedyPDF-2.0.0-windows-setup.exe",
+                "sha256": digest,
+            }
         },
     }
     dest = str(tmp_path / "installs")
@@ -289,7 +295,19 @@ def test_install_update_spawns(monkeypatch, tmp_path):
     assert os.path.exists(out)
     assert "2.0.0" in out
     with open(out, "rb") as fh:
-        assert fh.read() == b"MZ\x90\x00"
+        assert fh.read() == payload
+
+
+def test_install_update_default_requires_sha256(tmp_path):
+    """Release channel must publish a digest; default install refuses without one."""
+    info = {
+        "tag": "2.0.1",
+        "platforms": {
+            "windows-x86_64": {"url": "https://x/RemedyPDF-2.0.1-windows-setup.exe"}
+        },
+    }
+    with pytest.raises(OSError, match="SHA-256"):
+        install_update(info, dest_dir=str(tmp_path))
 
 
 def test_install_update_no_installer_url(tmp_path):
@@ -404,11 +422,23 @@ def test_download_update_cancel(monkeypatch, tmp_path):
 def test_install_update_cancel(monkeypatch, tmp_path):
     import utils.updater as upd
 
+    # Large enough that cancel_check fires mid-stream before hash verify.
+    payload = b"MZ" + (b"\x00" * 4096)
+    digest = hashlib.sha256(payload).hexdigest()
+    chunks = [payload[i : i + 64] for i in range(0, len(payload), 64)]
+
     class FakeResp:
-        headers = {"Content-Length": "50"}
+        headers = {"Content-Length": str(len(payload))}
+
+        def __init__(self):
+            self._i = 0
 
         def read(self, _n):
-            return b"MZ" + b"\x00" * 8
+            if self._i >= len(chunks):
+                return b""
+            bit = chunks[self._i]
+            self._i += 1
+            return bit
 
         def __enter__(self):
             return self
@@ -423,7 +453,10 @@ def test_install_update_cancel(monkeypatch, tmp_path):
     info = {
         "tag": "3.0.0",
         "platforms": {
-            "windows-x86_64": {"url": "https://x/RemedyPDF-3.0.0-windows-setup.exe"}
+            "windows-x86_64": {
+                "url": "https://x/RemedyPDF-3.0.0-windows-setup.exe",
+                "sha256": digest,
+            }
         },
     }
     n = {"i": 0}
@@ -484,6 +517,40 @@ def test_install_update_require_sha256_missing(tmp_path):
     }
     with pytest.raises(OSError, match="SHA-256"):
         install_update(info, dest_dir=str(tmp_path), require_sha256=True)
+
+
+def test_install_update_allow_missing_sha_when_opt_out(monkeypatch, tmp_path):
+    """require_sha256=False keeps legacy/dev channels usable without digests."""
+    import utils.updater as upd
+
+    payload = b"MZ\x90\x00dev"
+
+    class FakeResp:
+        headers = {"Content-Length": str(len(payload))}
+
+        def read(self, _n):
+            if not hasattr(self, "_sent"):
+                self._sent = True
+                return payload
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(upd, "urlopen", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(upd, "launch_installer", lambda p: True)
+    info = {
+        "tag": "3.2.1",
+        "platforms": {
+            "windows-x86_64": {"url": "https://x/RemedyPDF-3.2.1-windows-setup.exe"}
+        },
+    }
+    out = install_update(info, dest_dir=str(tmp_path), require_sha256=False)
+    assert out is not None
+    assert os.path.exists(out)
 
 
 def test_install_update_with_matching_sha(monkeypatch, tmp_path):

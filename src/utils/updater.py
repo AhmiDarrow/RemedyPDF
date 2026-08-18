@@ -30,7 +30,7 @@ except ImportError:
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
-        __version__ = "1.4.3"
+        __version__ = "1.4.5"
 
 _UA = f"RemedyPDF/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 
@@ -470,13 +470,15 @@ def install_update(
     dest_dir: Optional[str] = None,
     progress: Optional[Callable[[int, int], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
-    require_sha256: bool = False,
+    require_sha256: bool = True,
 ) -> Optional[str]:
     """Download the installer for update info and launch it silently.
 
     When latest.json / API provides a SHA-256, the download is verified before
-    launch. require_sha256=True refuses install when no digest is published
-    (strict mode). cancel_check() → True aborts and raises UpdateCancelled.
+    launch. require_sha256=True (default) refuses install when no digest is
+    published so a missing channel digest cannot launch an unverified binary.
+    Pass require_sha256=False only for trusted local/dev channels.
+    cancel_check() → True aborts and raises UpdateCancelled.
 
     Returns the installer path when spawned, or None (missing installer URL,
     download/hash/launch failure). UpdateCancelled propagates to the caller

@@ -16,10 +16,12 @@ Modeled after SecretSticky / SecretFolder: About panel + release channel on GitH
 When a newer version is found, the app offers **Download & install** (not just a
 browser link). `install_update()` streams the Windows Inno Setup installer to the
 temp dir (`RemedyPDF-<tag>-setup.exe`) with a progress dialog (Cancel aborts the
-download), optionally verifies **SHA-256** when the channel publishes a digest,
-then launches the installer silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-/SP- /CURRENTUSER`) and quits the app so the installer can replace files. The
-setup installs per-user (no admin needed).
+download), **requires SHA-256** from the release channel by default (refuses
+install when no digest is published), verifies the download, then launches the
+installer silently (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER`)
+and quits the app so the installer can replace files. The setup installs
+per-user (no admin needed). Pass `require_sha256=False` only for trusted
+local/dev channels.
 
 - `find_installer_url(info)` — resolves the installer URL from
   `latest.json` `platforms.windows-x86_64.url`, else GitHub API assets
@@ -28,8 +30,9 @@ setup installs per-user (no admin needed).
 - `download_update(url, dest, progress=…, cancel_check=…, expected_sha256=…)` —
   streamed download with progress, cancel, and integrity check
 - `launch_installer(path)` — detached silent Inno Setup run
-- `install_update(info, dest_dir=…, cancel_check=…)` — download + verify +
-  launch; raises `UpdateCancelled` or `OSError` with a clear reason on failure
+- `install_update(info, dest_dir=…, cancel_check=…, require_sha256=True)` —
+  download + verify + launch; default refuses missing digests; raises
+  `UpdateCancelled` or `OSError` with a clear reason on failure
 - `check_for_update` keeps `url` / `html_url` as the **release page**; the
   installer binary stays on `platforms` / `find_installer_url`
 
@@ -44,13 +47,13 @@ Tag push `v*`:
 3. Hash staged assets and generate `latest.json` (digests included when present):
    ```json
    {
-     "version": "1.4.3",
+     "version": "1.4.5",
      "notes": "…",
      "pub_date": "…",
-     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.3",
+     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.5",
      "platforms": {
        "windows-x86_64": {
-         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.3/RemedyPDF-1.4.3-windows-setup.exe",
+         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.5/RemedyPDF-1.4.5-windows-setup.exe",
          "sha256": "…"
        }
      }

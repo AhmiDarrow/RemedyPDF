@@ -2,7 +2,30 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
-## [1.4.4] — 2026-03-22
+## [1.4.5] — 2026-08-18
+
+### Fixed — packaging, update integrity default, hygiene
+
+- **Pip install layout** — `setup.py` now packages the real `src` tree
+  (`find_packages(include=["src", "src.*"])`) and entry points call
+  `src.main:main` so installed apps no longer hit the Android `main.py`
+  shim or lose `from src import __version__`.
+- **Auto-update requires SHA-256 by default** — `install_update(...,
+  require_sha256=True)` refuses to launch an installer when the release
+  channel did not publish a digest (opt out only for trusted local/dev).
+- **Version fallbacks** — hardcoded ImportError fallbacks synced to
+  **1.4.5** (installer / buildozer too).
+- **Dead dependency** — removed unused `PyPDF2` from `requirements.txt`
+  and `setup.py`.
+- **Docs** — README / AUTOUPDATE examples and tag instructions track
+  1.4.5; CHANGELOG timeline keeps 1.4.4 notes with corrected context under
+  prior releases.
+
+### Tests
+- Packaging: setup keeps `src` prefix + entry points; requirements omit PyPDF2.
+- Updater: default require-SHA, opt-out path, cancel/spawn with digests.
+
+## [1.4.4] — 2026-08-12
 
 ### Fixed — review pass
 

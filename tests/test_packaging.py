@@ -85,6 +85,22 @@ def test_version_is_semver():
     assert m.group(1).startswith("1.")
 
 
+def test_setup_keeps_src_package_and_entry_points():
+    text = (ROOT / "setup.py").read_text(encoding="utf-8")
+    assert 'find_packages(include=["src", "src.*"])' in text
+    assert "remedy-pdf=src.main:main" in text
+    assert "remedy-pdf-cli=src.main:main" in text
+    assert "package_dir" not in text or 'package_dir={"": "src"}' not in text
+    assert "PyPDF2" not in text
+
+
+def test_requirements_drop_unused_pypdf2():
+    text = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "PyPDF2" not in text
+    assert "PyMuPDF" in text
+    assert "PyQt5" in text
+
+
 def test_release_workflow_has_token_and_platforms():
     yml = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "secrets.GITHUB_TOKEN" in yml

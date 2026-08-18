@@ -33,7 +33,7 @@ A sleek, fast multi-format document viewer and editor with Remedy themes, both-s
 ## Requirements
 
 - Python 3.10+
-- PyQt5, PyMuPDF, PyPDF2, Pillow
+- PyQt5, PyMuPDF, Pillow
 
 ```bash
 pip install -r requirements.txt
@@ -163,7 +163,7 @@ Touch/APK notes:
 1. Bump `__version__` in `src/__init__.py` (single source of truth)
 2. Update `CHANGELOG.md`
 3. Push to `main` → CI must be green
-4. Tag and push: `git tag v1.4.3 && git push origin v1.4.3`
+4. Tag and push: `git tag v1.4.5 && git push origin v1.4.5`
 5. GitHub Actions **Release** workflow builds:
    - Windows Setup installer + portable exe
    - Android mobile source zip (APK only if `build_apk=true`)

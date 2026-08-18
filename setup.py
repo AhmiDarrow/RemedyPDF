@@ -27,15 +27,14 @@ setup(
         "Source": "https://github.com/AhmiDarrow/RemedyPDF",
     },
     license="MIT",
-    packages=find_packages(where="src"),
-    package_dir={"": "src"},
-    py_modules=["main"],
-    package_data={"": ["py.typed"]},
+    # Keep the `src` package prefix so `from src import __version__` and
+    # `from src.core…` work after pip install (matches frozen/dev imports).
+    packages=find_packages(include=["src", "src.*"]),
+    package_data={"src": ["py.typed"]},
     include_package_data=True,
     install_requires=[
         "PyQt5>=5.15.0",
         "PyMuPDF>=1.23.0",
-        "PyPDF2>=3.0.0",
         "Pillow>=9.0.0",
     ],
     extras_require={
@@ -44,10 +43,10 @@ setup(
     python_requires=">=3.10",
     entry_points={
         "gui_scripts": [
-            "remedy-pdf=main:main",
+            "remedy-pdf=src.main:main",
         ],
         "console_scripts": [
-            "remedy-pdf-cli=main:main",
+            "remedy-pdf-cli=src.main:main",
         ],
     },
     classifiers=[
