@@ -1,6 +1,7 @@
 """Build RemedyPDF icon + logo from Remedy brand references + PDF badge."""
 from __future__ import annotations
 
+import os
 import shutil
 import struct
 import zlib
@@ -13,22 +14,25 @@ OUT = ROOT / "resources"
 REF = OUT / "brand_ref"
 REF.mkdir(parents=True, exist_ok=True)
 
-# Source brand assets (read-only)
+# Source brand assets (read-only). Prefer env / home-relative paths — never hardcode a machine user.
+_HOME = Path.home()
+_REMEDY_ASSETS = (
+    Path(os.environ["REMEDY_ASSETS"])
+    if os.environ.get("REMEDY_ASSETS")
+    else (_HOME / "Old-Remedy" / "assets")
+)
+_PREVIEWS = (
+    Path(os.environ["REMEDY_LOGO_PREVIEWS"])
+    if os.environ.get("REMEDY_LOGO_PREVIEWS")
+    else (_HOME / "Desktop" / "Remedy_logo_previews")
+)
 SOURCES = {
-    "icon": Path(r"C:\Users\Administrator\Old-Remedy\assets\remedy_icon.png"),
-    "logo": Path(r"C:\Users\Administrator\Old-Remedy\assets\remedy_logo.png"),
-    "icon_dark": Path(
-        r"C:\Users\Administrator\Desktop\Remedy_logo_previews\hero_icon_color_on_dark.png"
-    ),
-    "logo_dark": Path(
-        r"C:\Users\Administrator\Desktop\Remedy_logo_previews\hero_logo_color_on_dark.png"
-    ),
-    "icon_light": Path(
-        r"C:\Users\Administrator\Desktop\Remedy_logo_previews\hero_icon_color_on_light.png"
-    ),
-    "logo_light": Path(
-        r"C:\Users\Administrator\Desktop\Remedy_logo_previews\hero_logo_color_on_light.png"
-    ),
+    "icon": _REMEDY_ASSETS / "remedy_icon.png",
+    "logo": _REMEDY_ASSETS / "remedy_logo.png",
+    "icon_dark": _PREVIEWS / "hero_icon_color_on_dark.png",
+    "logo_dark": _PREVIEWS / "hero_logo_color_on_dark.png",
+    "icon_light": _PREVIEWS / "hero_icon_color_on_light.png",
+    "logo_light": _PREVIEWS / "hero_logo_color_on_light.png",
 }
 
 # Brand-ish palette (Remedy teal / cyan on dark)
