@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
@@ -49,7 +50,7 @@ except ImportError:  # script-style / flat src on path
         )
     except ImportError:
         APP_NAME = "RemedyPDF"
-        VERSION = "1.4.5"
+        VERSION = "1.4.6"
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
@@ -859,8 +860,7 @@ class RemedyPDFApp(QMainWindow):
                 self.save_document()
                 if self._dirty:
                     return  # save cancelled/failed
-        if not self.engine.open(path):
-            QMessageBox.critical(self, APP_NAME, f"Could not open:\n{path}")
+        if not self._open_with_password_prompt(path):
             return
         self.current_path = path
         self._dirty = False
@@ -869,6 +869,38 @@ class RemedyPDFApp(QMainWindow):
         self._sync_page_controls()
         self.render_current()
         self._update_status()
+
+    def _open_with_password_prompt(self, path: str) -> bool:
+        """engine.open(path), prompting for a password on encrypted PDFs.
+
+        A failed open leaves the current document untouched (the engine only
+        swaps documents on success). Returns True when the new file is open.
+        """
+        if self.engine.open(path):
+            return True
+        err = getattr(self.engine, "last_error", "")
+        if err == "password" and not self._is_headless():
+            prompt = "This PDF is password-protected.\n\nPassword:"
+            for _attempt in range(3):
+                pw, ok = QInputDialog.getText(
+                    self, APP_NAME, prompt, QLineEdit.Password
+                )
+                if not ok:
+                    return False
+                if self.engine.open(path, password=pw):
+                    return True
+                if getattr(self.engine, "last_error", "") != "password":
+                    break
+                prompt = "Incorrect password — try again.\n\nPassword:"
+            err = getattr(self.engine, "last_error", "")
+        if err == "password":
+            msg = f"Could not open (password required):\n{path}"
+        elif err == "empty":
+            msg = f"Could not open (document has no pages):\n{path}"
+        else:
+            msg = f"Could not open (file is damaged or not a supported format):\n{path}"
+        QMessageBox.critical(self, APP_NAME, msg)
+        return False
 
     # Back-compat alias used by older callers / tests
     def open_pdf(self, path: Optional[str] = None) -> None:
@@ -883,6 +915,10 @@ class RemedyPDFApp(QMainWindow):
             self.save_document_as()
             return
         if self.engine.save(dest):
+            # The engine may fall back to a sibling "-export.pdf" — track the
+            # file that was really written so the next Save goes there too.
+            dest = self.engine.path or dest
+            self.current_path = dest
             self._dirty = False
             self.statusBar().showMessage(f"Saved {dest}", 3000)
             self._update_status()
@@ -908,6 +944,8 @@ class RemedyPDFApp(QMainWindow):
         if not path:
             return
         if self.engine.save(path):
+            # Non-PDF sources are exported with a .pdf suffix; use the real path.
+            path = self.engine.path or path
             self.current_path = path
             self._dirty = False
             self.statusBar().showMessage(f"Saved {path}", 3000)

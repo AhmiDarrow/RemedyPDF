@@ -1,7 +1,7 @@
 from pathlib import Path
 import zipfile
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from core.pdf_engine import PDFEngine, SUPPORTED_EXTENSIONS

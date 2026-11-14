@@ -115,3 +115,15 @@ def test_docs_install_mentions_both_platforms():
     install = (ROOT / "docs" / "INSTALL.md").read_text(encoding="utf-8")
     assert "Windows" in install
     assert "Android" in install or "APK" in install
+
+
+def test_every_version_copy_in_sync():
+    """Installer, buildozer, fallbacks and docs must match src/__init__.py."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "bump_version", ROOT / "scripts" / "bump_version.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.check() == []

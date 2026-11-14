@@ -14,6 +14,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 try:
@@ -30,7 +31,7 @@ except ImportError:
         GITHUB_OWNER = "AhmiDarrow"
         GITHUB_REPO = "RemedyPDF"
         GITHUB_RELEASES_URL = "https://github.com/AhmiDarrow/RemedyPDF/releases"
-        __version__ = "1.4.5"
+        __version__ = "1.4.6"
 
 _UA = f"RemedyPDF/{__version__} (+https://github.com/{GITHUB_OWNER}/{GITHUB_REPO})"
 
@@ -319,11 +320,38 @@ def check_for_update(
     }
 
 
+def is_trusted_installer_url(
+    url: str, owner: str = GITHUB_OWNER, repo: str = GITHUB_REPO
+) -> bool:
+    """True only for https .exe assets of this repo's GitHub Releases.
+
+    The auto-updater silently runs whatever it downloads, so installer URLs
+    from latest.json / the API are pinned to
+    ``https://github.com/<owner>/<repo>/releases/download/…``. A tampered or
+    mis-published channel cannot point the client at another host or repo.
+    """
+    u = (url or "").strip()
+    try:
+        parts = urlsplit(u)
+    except ValueError:
+        return False
+    if parts.scheme != "https" or (parts.hostname or "").lower() != "github.com":
+        return False
+    if parts.port not in (None, 443) or parts.username or parts.password:
+        return False
+    prefix = f"/{owner}/{repo}/releases/download/".lower()
+    path = parts.path.lower()
+    if not path.startswith(prefix) or ".." in path.split("/"):
+        return False
+    return path.endswith(".exe")
+
+
 def find_installer_url(info: Optional[dict[str, Any]]) -> Optional[str]:
     """Best Windows installer download URL from update info (or None).
 
     Priority: latest.json platforms.windows-x86_64.url → GitHub API assets
-    (setup, then portable exe) → generic https .exe url.
+    (setup, then portable exe) → generic .exe url. Only URLs that pass
+    ``is_trusted_installer_url`` are ever returned.
     """
     if not info:
         return None
@@ -331,17 +359,19 @@ def find_installer_url(info: Optional[dict[str, Any]]) -> Optional[str]:
     win = platforms.get("windows-x86_64")
     if isinstance(win, dict):
         u = str(win.get("url") or "").strip()
-        if u.startswith("https://") and u.lower().endswith(".exe"):
+        if is_trusted_installer_url(u):
             return u
     assets = info.get("assets") or []
+    if not isinstance(assets, list):
+        assets = []
 
     def _url_for(needle: str) -> str:
         for a in assets:
             if not isinstance(a, dict):
                 continue
             name = str(a.get("name") or "").lower()
-            url = str(a.get("browser_download_url") or "")
-            if needle in name and url.startswith("https://"):
+            url = str(a.get("browser_download_url") or "").strip()
+            if needle in name and name.endswith(".exe") and is_trusted_installer_url(url):
                 return url
         return ""
 
@@ -350,7 +380,7 @@ def find_installer_url(info: Optional[dict[str, Any]]) -> Optional[str]:
         if u:
             return u
     u = str(info.get("url") or "").strip()
-    if u.startswith("https://") and u.lower().endswith(".exe"):
+    if is_trusted_installer_url(u):
         return u
     return None
 
@@ -459,7 +489,13 @@ def launch_installer(path: str) -> bool:
                 shell=False,
             )
         else:
-            subprocess.Popen([str(p), *flags], cwd=str(p.parent), start_new_session=True)
+            subprocess.Popen(
+                [str(p), *flags],
+                cwd=str(p.parent),
+                start_new_session=True,
+                close_fds=True,
+                shell=False,
+            )
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -583,6 +619,7 @@ __all__ = [
     "find_installer_sha256",
     "find_installer_url",
     "format_update_message",
+    "is_trusted_installer_url",
     "install_update",
     "launch_installer",
     "normalize_sha256",

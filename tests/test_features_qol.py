@@ -63,7 +63,7 @@ def test_create_app_has_book_and_fine_zoom():
 
 
 def test_open_pdf_via_app(tmp_path):
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
     from core.pdf_engine import PDFEngine
 
@@ -96,7 +96,7 @@ def test_open_pdf_via_app(tmp_path):
 
 def test_book_mode_canvas_shows_both_sides(tmp_path):
     """Regression: book mode must paint a wide two-page pixmap on the canvas."""
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
 
     path = tmp_path / "spread.pdf"
@@ -246,7 +246,7 @@ def test_app_has_wheel_event_filter_and_dirty_flag():
 
 def test_page_spin_resyncs_after_book_snap(tmp_path):
     """Page spin must resync to snapped left page after book-mode set."""
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
 
     path = tmp_path / "spin.pdf"
@@ -269,7 +269,7 @@ def test_page_spin_resyncs_after_book_snap(tmp_path):
 
 
 def test_dirty_flag_after_add_text(tmp_path):
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
 
     path = tmp_path / "dirty.pdf"
@@ -302,7 +302,7 @@ def test_close_event_headless_skips_prompt():
 
 def test_search_enter_lands_on_first_hit(tmp_path):
     """Enter after Find must land on hit 0, not skip to hit 1."""
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
 
     path = tmp_path / "find.pdf"

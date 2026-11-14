@@ -167,15 +167,15 @@ def test_check_for_update_keeps_release_page_url(monkeypatch):
 def test_find_installer_url_api_assets():
     info = {
         "assets": [
-            {"name": "RemedyPDF-2.0.0-windows.exe", "browser_download_url": "https://x/portable.exe"},
+            {"name": "RemedyPDF-2.0.0-windows.exe", "browser_download_url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/portable.exe"},
             {
                 "name": "RemedyPDF-2.0.0-windows-setup.exe",
-                "browser_download_url": "https://x/setup.exe",
+                "browser_download_url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe",
             },
-            {"name": "RemedyPDF-2.0.0-android-src.zip", "browser_download_url": "https://x/src.zip"},
+            {"name": "RemedyPDF-2.0.0-android-src.zip", "browser_download_url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/src.zip"},
         ]
     }
-    assert find_installer_url(info) == "https://x/setup.exe"
+    assert find_installer_url(info) == "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe"
 
 
 def test_find_installer_url_none():
@@ -202,7 +202,7 @@ def test_download_update_streams(monkeypatch, tmp_path):
 
     monkeypatch.setattr("utils.updater.urlopen", lambda *a, **k: FakeResp())
     dest = str(tmp_path / "update.exe")
-    out = download_update("https://x/setup.exe", dest)
+    out = download_update("https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe", dest)
     assert out == dest
     with open(dest, "rb") as fh:
         assert fh.read() == b"abcdef"
@@ -223,7 +223,7 @@ def test_download_update_empty_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr("utils.updater.urlopen", lambda *a, **k: FakeResp())
     try:
-        download_update("https://x/setup.exe", str(tmp_path / "u.exe"))
+        download_update("https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe", str(tmp_path / "u.exe"))
         raise AssertionError("expected OSError")
     except OSError:
         pass
@@ -284,7 +284,7 @@ def test_install_update_spawns(monkeypatch, tmp_path):
         "tag": "2.0.0",
         "platforms": {
             "windows-x86_64": {
-                "url": "https://x/RemedyPDF-2.0.0-windows-setup.exe",
+                "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-2.0.0-windows-setup.exe",
                 "sha256": digest,
             }
         },
@@ -303,7 +303,7 @@ def test_install_update_default_requires_sha256(tmp_path):
     info = {
         "tag": "2.0.1",
         "platforms": {
-            "windows-x86_64": {"url": "https://x/RemedyPDF-2.0.1-windows-setup.exe"}
+            "windows-x86_64": {"url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-2.0.1-windows-setup.exe"}
         },
     }
     with pytest.raises(OSError, match="SHA-256"):
@@ -320,7 +320,7 @@ def test_normalize_and_find_sha256():
     info = {
         "platforms": {
             "windows-x86_64": {
-                "url": "https://x/setup.exe",
+                "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe",
                 "sha256": "b" * 64,
             }
         }
@@ -330,14 +330,14 @@ def test_normalize_and_find_sha256():
         "assets": [
             {
                 "name": "RemedyPDF-setup.exe",
-                "browser_download_url": "https://x/setup.exe",
+                "browser_download_url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe",
                 "digest": "sha256:" + "c" * 64,
             }
         ],
-        "url": "https://x/setup.exe",
+        "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe",
     }
     # find_installer_url picks setup; digest should resolve
-    assert find_installer_url(api) == "https://x/setup.exe"
+    assert find_installer_url(api) == "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe"
     assert find_installer_sha256(api) == "c" * 64
 
 
@@ -376,13 +376,13 @@ def test_download_update_verifies_sha256(monkeypatch, tmp_path):
 
     monkeypatch.setattr("utils.updater.urlopen", lambda *a, **k: FakeResp())
     dest = str(tmp_path / "ok.exe")
-    out = download_update("https://x/setup.exe", dest, expected_sha256=digest)
+    out = download_update("https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe", dest, expected_sha256=digest)
     assert out == dest
     assert os.path.isfile(dest)
 
     dest_bad = str(tmp_path / "bad.exe")
     try:
-        download_update("https://x/setup.exe", dest_bad, expected_sha256="e" * 64)
+        download_update("https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe", dest_bad, expected_sha256="e" * 64)
         raise AssertionError("expected OSError on hash mismatch")
     except OSError:
         pass
@@ -412,7 +412,7 @@ def test_download_update_cancel(monkeypatch, tmp_path):
 
     with pytest.raises(UpdateCancelled):
         download_update(
-            "https://x/setup.exe",
+            "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/setup.exe",
             dest,
             cancel_check=cancel_after_progress,
         )
@@ -454,7 +454,7 @@ def test_install_update_cancel(monkeypatch, tmp_path):
         "tag": "3.0.0",
         "platforms": {
             "windows-x86_64": {
-                "url": "https://x/RemedyPDF-3.0.0-windows-setup.exe",
+                "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-3.0.0-windows-setup.exe",
                 "sha256": digest,
             }
         },
@@ -496,7 +496,7 @@ def test_install_update_hash_mismatch(monkeypatch, tmp_path):
         "tag": "3.1.0",
         "platforms": {
             "windows-x86_64": {
-                "url": "https://x/RemedyPDF-3.1.0-windows-setup.exe",
+                "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-3.1.0-windows-setup.exe",
                 "sha256": "f" * 64,
             }
         },
@@ -512,7 +512,7 @@ def test_install_update_require_sha256_missing(tmp_path):
     info = {
         "tag": "3.2.0",
         "platforms": {
-            "windows-x86_64": {"url": "https://x/RemedyPDF-3.2.0-windows-setup.exe"}
+            "windows-x86_64": {"url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-3.2.0-windows-setup.exe"}
         },
     }
     with pytest.raises(OSError, match="SHA-256"):
@@ -545,7 +545,7 @@ def test_install_update_allow_missing_sha_when_opt_out(monkeypatch, tmp_path):
     info = {
         "tag": "3.2.1",
         "platforms": {
-            "windows-x86_64": {"url": "https://x/RemedyPDF-3.2.1-windows-setup.exe"}
+            "windows-x86_64": {"url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-3.2.1-windows-setup.exe"}
         },
     }
     out = install_update(info, dest_dir=str(tmp_path), require_sha256=False)
@@ -580,7 +580,7 @@ def test_install_update_with_matching_sha(monkeypatch, tmp_path):
         "tag": "3.3.0",
         "platforms": {
             "windows-x86_64": {
-                "url": "https://x/RemedyPDF-3.3.0-windows-setup.exe",
+                "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v9.9.9/RemedyPDF-3.3.0-windows-setup.exe",
                 "sha256": digest,
             }
         },

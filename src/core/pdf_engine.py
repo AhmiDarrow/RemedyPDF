@@ -9,7 +9,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import fitz
+try:  # PyMuPDF >= 1.24.3 ships the `pymupdf` name; `fitz` is the legacy alias
+    import pymupdf as fitz
+except ImportError:  # pragma: no cover - older PyMuPDF / mobile builds
+    import fitz  # type: ignore
 
 # Formats PyMuPDF can open as page-based documents.
 # DOCX / SVG / plain images open through MuPDF's office+image handlers —
@@ -103,30 +106,66 @@ class PDFEngine:
         self.theme_recolor: bool = False
         # View-only rotation in degrees (0/90/180/270) — never baked into saves.
         self.rotation: int = 0
+        # Why the last open() failed: "" | "password" | "empty" | "error".
+        self.last_error: str = ""
+        # Password that unlocked the open document (re-applied on save so a
+        # protected PDF is never written back unprotected).
+        self._password: Optional[str] = None
 
     # ----- lifecycle -----
 
-    def open(self, path: str) -> bool:
-        """Open a PDF/EPUB/XPS/CBZ/… file. Returns True on success."""
+    def open(self, path: str, password: Optional[str] = None) -> bool:
+        """Open a PDF/EPUB/XPS/CBZ/… file. Returns True on success.
+
+        The currently open document is only replaced once the new file has
+        opened successfully, so a failed open (corrupt file, wrong password)
+        never discards what the user was reading. On failure ``last_error`` is
+        "password" (encrypted, password missing/wrong), "empty" (no pages) or
+        "error" (unreadable / unsupported).
+        """
+        self.last_error = ""
+        p = Path(path)
+        new_doc = None
         try:
-            self.close()
-            p = Path(path)
             # MuPDF opens EPUB/XPS/CBZ/etc. the same way as PDF
-            self.doc = fitz.open(str(p))
-            self.path = str(p)
-            self.page_count = len(self.doc)
-            self.current_page = 0
-            self._page_cache.clear()
-            self._cache_bytes = 0
-            self._format = p.suffix.lower().lstrip(".") or "pdf"
-            return True
+            new_doc = fitz.open(str(p))
+            if getattr(new_doc, "needs_pass", False) and getattr(
+                new_doc, "is_encrypted", False
+            ):
+                if not password or not new_doc.authenticate(password):
+                    self.last_error = "password"
+                    new_doc.close()
+                    return False
+            else:
+                password = None
+            if len(new_doc) <= 0:
+                self.last_error = "empty"
+                new_doc.close()
+                return False
         except Exception as exc:  # noqa: BLE001 - surface open failures cleanly
             print(f"Error opening document: {exc}")
-            self.doc = None
-            self.path = None
-            self.page_count = 0
-            self._format = ""
+            self.last_error = "error"
+            if new_doc is not None:
+                try:
+                    new_doc.close()
+                except Exception:  # noqa: BLE001
+                    pass
             return False
+        self.close()
+        self.doc = new_doc
+        self._password = password
+        self.path = str(p)
+        self.page_count = len(new_doc)
+        self.current_page = 0
+        self._page_cache.clear()
+        self._cache_bytes = 0
+        self._format = p.suffix.lower().lstrip(".") or "pdf"
+        return True
+
+    @property
+    def is_password_protected(self) -> bool:
+        """True when the open document was unlocked with a password."""
+        return self.doc is not None and bool(self._password)
 
     def close(self) -> None:
         """Close the document and clear caches."""
@@ -143,6 +182,7 @@ class PDFEngine:
         self._cache_bytes = 0
         self._format = ""
         self.rotation = 0
+        self._password = None
 
     @property
     def is_open(self) -> bool:
@@ -880,7 +920,10 @@ class PDFEngine:
         idx = self.current_page if page is None else page
         if not (0 <= idx < self.page_count):
             return (0.0, 0.0)
-        rect = self.doc[idx].rect
+        try:
+            rect = self.doc[idx].rect
+        except Exception:  # noqa: BLE001 - damaged page objects must not crash the UI
+            return (0.0, 0.0)
         return (float(rect.width), float(rect.height))
 
     def spread_gap_pts(self) -> float:
@@ -1043,17 +1086,19 @@ class PDFEngine:
                 target = dest_path.resolve()
             except OSError:
                 target = dest_path
+            doc_is_pdf = bool(getattr(self.doc, "is_pdf", False))
+            if not doc_is_pdf:
+                # EPUB/XPS/images/…: MuPDF cannot write these back, and the
+                # source file is never the destination — export straight to
+                # the requested .pdf (repeat saves overwrite the same file).
+                return self._export_as_pdf(dest)
             same_as_open = open_path is not None and target == open_path
 
             if same_as_open:
                 # Write beside the open file, then atomically replace.
                 tmp = dest_path.with_name(dest_path.stem + ".__remedy_save__.pdf")
                 try:
-                    self.doc.save(
-                        str(tmp),
-                        incremental=False,
-                        encryption=fitz.PDF_ENCRYPT_NONE,
-                    )
+                    self.doc.save(str(tmp), incremental=False, **self._save_encryption())
                     # On Windows, replace may fail while the source handle is
                     # still mapped — close, swap, reopen so the UI keeps working.
                     was_page = self.current_page
@@ -1065,6 +1110,8 @@ class PDFEngine:
                     self.doc = None
                     os.replace(str(tmp), str(dest_path))
                     self.doc = fitz.open(str(dest_path))
+                    if self._password:
+                        self.doc.authenticate(self._password)
                     self.path = str(dest_path)
                     self.page_count = len(self.doc)
                     self.current_page = min(was_page, max(0, self.page_count - 1))
@@ -1073,27 +1120,54 @@ class PDFEngine:
                     self._cache_bytes = 0
                     return True
                 except Exception:
-                    # Best-effort cleanup of the temp sibling
+                    if self.doc is not None:
+                        # Writing the temp copy failed; the document (and its
+                        # edits) is still open — let the export fallback try.
+                        try:
+                            if tmp.is_file():
+                                tmp.unlink()
+                        except OSError:
+                            pass
+                        raise
+                    # The swap failed after the handle was closed (e.g. the
+                    # file is locked by another program). The temp copy holds
+                    # the user's edits: load it into memory so nothing is lost
+                    # and report failure instead of pretending it saved.
+                    recovered = None
+                    try:
+                        if tmp.is_file():
+                            recovered = fitz.open(stream=tmp.read_bytes(), filetype="pdf")
+                    except Exception:  # noqa: BLE001
+                        recovered = None
                     try:
                         if tmp.is_file():
                             tmp.unlink()
                     except OSError:
                         pass
-                    # Re-open original if we closed it mid-flight
-                    if self.doc is None and open_path is not None and open_path.is_file():
+                    if recovered is None and open_path is not None and open_path.is_file():
                         try:
-                            self.doc = fitz.open(str(open_path))
-                            self.path = str(open_path)
-                            self.page_count = len(self.doc)
+                            recovered = fitz.open(str(open_path))
                         except Exception:  # noqa: BLE001
-                            self.doc = None
-                            self.path = None
-                            self.page_count = 0
-                    raise
+                            recovered = None
+                    if recovered is not None:
+                        if self._password:
+                            recovered.authenticate(self._password)
+                        self.doc = recovered
+                        self.path = str(open_path or dest_path)
+                        self.page_count = len(recovered)
+                        self.current_page = min(
+                            self.current_page, max(0, self.page_count - 1)
+                        )
+                    else:
+                        self.doc = None
+                        self.path = None
+                        self.page_count = 0
+                    self._page_cache.clear()
+                    self._cache_bytes = 0
+                    print(f"Error saving document in place: {dest_path}")
+                    return False
             else:
-                self.doc.save(
-                    dest, incremental=False, encryption=fitz.PDF_ENCRYPT_NONE
-                )
+                self.doc.save(dest, incremental=False, **self._save_encryption())
                 self.path = str(dest)
                 return True
         except Exception as exc:  # noqa: BLE001
@@ -1111,6 +1185,26 @@ class PDFEngine:
                 print(f"Error saving document: {exc} / {exc2}")
                 return False
 
+    def _save_encryption(self) -> dict:
+        """doc.save() kwargs: re-protect password-unlocked PDFs on write.
+
+        PDF_ENCRYPT_KEEP corrupts newly added content streams, so a document
+        that was opened with a password is re-encrypted (AES-256) with that
+        same password instead of being silently written out unprotected.
+        """
+        if self._password and self.doc is not None:
+            try:
+                perms = int(self.doc.permissions)
+            except Exception:  # noqa: BLE001
+                perms = -1
+            return {
+                "encryption": fitz.PDF_ENCRYPT_AES_256,
+                "user_pw": self._password,
+                "owner_pw": self._password,
+                "permissions": perms,
+            }
+        return {"encryption": fitz.PDF_ENCRYPT_NONE}
+
     def _export_as_pdf(self, dest: str) -> bool:
         if self.doc is None:
             return False
@@ -1125,7 +1219,7 @@ class PDFEngine:
                     w, h = pix.width, pix.height
                     page = out.new_page(width=w, height=h)
                     page.insert_image(page.rect, pixmap=pix)
-            out.save(dest)
+            out.save(dest, **self._save_encryption())
             self.path = dest
             return True
         finally:

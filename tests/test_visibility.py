@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("fitz")
+pytest.importorskip("pymupdf")
 pytest.importorskip("PIL")
 
 
@@ -105,7 +105,7 @@ def test_theme_stylesheet_sets_text_colors():
 
 
 def test_engine_page_filters_change_pixels(tmp_path):
-    import fitz
+    import pymupdf as fitz
     from core.pdf_engine import PDFEngine
 
     path = tmp_path / "vis.pdf"
@@ -157,7 +157,7 @@ def test_engine_page_filters_change_pixels(tmp_path):
 
 def test_theme_page_recolor_maps_ink_and_paper(tmp_path):
     """Theme ink/paper recolor turns white paper + black ink into theme colors."""
-    import fitz
+    import pymupdf as fitz
     from core.pdf_engine import PDFEngine
     from ui.theme import page_colors_for_theme
 
@@ -202,7 +202,7 @@ def test_theme_page_recolor_maps_ink_and_paper(tmp_path):
 
 
 def test_app_reading_controls(tmp_path):
-    import fitz
+    import pymupdf as fitz
     from core.app import create_app
 
     path = tmp_path / "read.pdf"

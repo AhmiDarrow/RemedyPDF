@@ -118,7 +118,7 @@ def test_tap_zone_release_emits_direction(qapp):
 
 
 def _pdf(tmp_path, pages=3):
-    import fitz
+    import pymupdf as fitz
 
     path = tmp_path / "doc.pdf"
     doc = fitz.open()

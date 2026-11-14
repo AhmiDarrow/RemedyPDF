@@ -206,12 +206,15 @@ class MainScreen(Screen):
 
         # Keyboard: left/right for page turns
         if Window:
+            # on_enter runs again when the screen is re-entered — never stack
+            # duplicate handlers (each would turn the page once per key press).
+            Window.unbind(on_key_down=self._on_key_down)
             Window.bind(on_key_down=self._on_key_down)
 
     # ---- Input handlers ----
 
     def on_touch_down(self, touch):
-        if touch.is_double_tap:
+        if touch.is_double_tap and self.engine is not None:
             self._zoom(0.3 if self.engine.zoom < 2.0 else -0.5)
             return True
         self._touch_start_x = touch.x
@@ -243,17 +246,17 @@ class MainScreen(Screen):
     # ---- Navigation ----
 
     def _go_next(self):
-        if self.engine.next_page():
+        if self.engine is not None and self.engine.next_page():
             self._update_page_display()
 
     def _go_prev(self):
-        if self.engine.prev_page():
+        if self.engine is not None and self.engine.prev_page():
             self._update_page_display()
 
     def _on_page_input(self, instance):
         try:
             page = int(instance.text) - 1  # 0-based
-            if self.engine.set_current_page(page):
+            if self.engine is not None and self.engine.set_current_page(page):
                 self._update_page_display()
         except ValueError:
             pass
@@ -261,6 +264,8 @@ class MainScreen(Screen):
         Clock.schedule_once(lambda dt: self._sync_page_input(), 0.05)
 
     def _zoom(self, delta: float):
+        if self.engine is None:
+            return
         self.engine.adjust_zoom(delta)
         self._update_page_display()
 
@@ -329,12 +334,19 @@ class MainScreen(Screen):
             sel = filechooser.selection
             if sel:
                 path = sel[0]
-                if self.engine.open(path):
+                if self.engine is not None and self.engine.open(path):
                     self._update_page_display()
                 else:
+                    reason = getattr(self.engine, "last_error", "")
+                    if reason == "password":
+                        why = "Password-protected PDFs aren't supported here yet."
+                    elif reason == "empty":
+                        why = "The document has no pages."
+                    else:
+                        why = "The file is damaged or not a supported format."
                     err = Popup(
                         title="Error",
-                        content=Label(text=f"Could not open:\n{path}"),
+                        content=Label(text=f"Could not open:\n{path}\n\n{why}"),
                         size_hint=(0.7, 0.3),
                     )
                     err.open()
@@ -365,7 +377,7 @@ class RemedyPDFApp(App):
         if len(sys.argv) > 1:
             path = sys.argv[1]
             screen = self.root.get_screen("main")
-            if screen.engine.open(path):
+            if screen.engine is not None and screen.engine.open(path):
                 screen._update_page_display()
 
 

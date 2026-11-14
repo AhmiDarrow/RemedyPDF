@@ -12,6 +12,26 @@ from typing import Optional, Tuple
 
 _ANDROID = hasattr(os, "getenv") and os.environ.get("REMEDYPDF_MOBILE") == "1"
 
+# android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY
+_RENDER_MODE_FOR_DISPLAY = 1
+
+
+def _jclass(name: str):
+    """Load a Java class through pyjnius (Python has no `import android.graphics`)."""
+    from jnius import autoclass  # type: ignore
+
+    return autoclass(name)
+
+
+def _rgba_to_rgb(raw: bytes, w: int, h: int) -> bytes:
+    """Drop alpha from tightly packed RGBA bytes (Bitmap ARGB_8888 memory order)."""
+    n = w * h
+    rgb = bytearray(n * 3)
+    rgb[0::3] = raw[0 : n * 4 : 4]
+    rgb[1::3] = raw[1 : n * 4 : 4]
+    rgb[2::3] = raw[2 : n * 4 : 4]
+    return bytes(rgb)
+
 
 class AndroidPdfRenderer:
     """Render PDF pages using Android's native PdfRenderer."""
@@ -39,21 +59,31 @@ class AndroidPdfRenderer:
     def open(self, path: str) -> bool:
         if not _ANDROID:
             return False
+        fd = None
         try:
-            from android.graphics.pdf import PdfRenderer
-            from java.io import File as JFile
-            from android.os import ParcelFileDescriptor
-            jfile = JFile(path)
-            self._fd = ParcelFileDescriptor.open(
-                jfile, ParcelFileDescriptor.MODE_READ_ONLY
+            PdfRenderer = _jclass("android.graphics.pdf.PdfRenderer")
+            JFile = _jclass("java.io.File")
+            ParcelFileDescriptor = _jclass("android.os.ParcelFileDescriptor")
+            fd = ParcelFileDescriptor.open(
+                JFile(path), ParcelFileDescriptor.MODE_READ_ONLY
             )
-            self._renderer = PdfRenderer(self._fd)
-            self._page_count = self._renderer.getPageCount()
-            self._current_page = 0
-            self._path = path
-            return True
+            renderer = PdfRenderer(fd)
+            count = int(renderer.getPageCount())
         except Exception:
+            if fd is not None:
+                try:
+                    fd.close()
+                except Exception:
+                    pass
             return False
+        # Only replace the open document once the new one is usable.
+        self.close()
+        self._fd = fd
+        self._renderer = renderer
+        self._page_count = count
+        self._current_page = 0
+        self._path = path
+        return True
 
     def close(self):
         if self._renderer:
@@ -98,35 +128,32 @@ class AndroidPdfRenderer:
         if not self._renderer or not (0 <= page < self._page_count):
             return None
         try:
-            from android.graphics import Bitmap, Canvas, Paint, Matrix
-            from java.nio import ByteBuffer
+            Bitmap = _jclass("android.graphics.Bitmap")
+            BitmapConfig = _jclass("android.graphics.Bitmap$Config")
+            Canvas = _jclass("android.graphics.Canvas")
+            Matrix = _jclass("android.graphics.Matrix")
+            ByteBuffer = _jclass("java.nio.ByteBuffer")
             pg = self._renderer.openPage(page)
-            w = int(pg.getWidth() * zoom)
-            h = int(pg.getHeight() * zoom)
-            if w <= 0 or h <= 0:
+            try:
+                w = int(pg.getWidth() * zoom)
+                h = int(pg.getHeight() * zoom)
+                if w <= 0 or h <= 0:
+                    return None
+                bitmap = Bitmap.createBitmap(w, h, BitmapConfig.ARGB_8888)
+                canvas = Canvas(bitmap)
+                canvas.drawColor(-1)  # opaque white (0xFFFFFFFF as a Java int)
+                matrix = Matrix()
+                matrix.setScale(float(zoom), float(zoom))
+                pg.render(bitmap, None, matrix, _RENDER_MODE_FOR_DISPLAY)
+            finally:
                 pg.close()
-                return None
-            bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            canvas = Canvas(bitmap)
-            canvas.drawColor(0xFFFFFFFF)
-            matrix = Matrix()
-            matrix.setScale(zoom, zoom)
-            pg.render(bitmap, None, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            pg.close()
             buf = ByteBuffer.allocate(w * h * 4)
             bitmap.copyPixelsToBuffer(buf)
-            buf.rewind()
-            raw = bytearray(w * h * 4)
-            buf.get(raw)
-            buf_array = bytes(raw)
-            rgb = bytearray(w * h * 3)
-            for i in range(w * h):
-                src = i * 4
-                dst = i * 3
-                rgb[dst] = buf_array[src + 2]
-                rgb[dst + 1] = buf_array[src + 1]
-                rgb[dst + 2] = buf_array[src]
+            arr = buf.array()
+            raw = arr.tostring() if hasattr(arr, "tostring") else bytes(
+                b & 0xFF for b in arr
+            )
             bitmap.recycle()
-            return (w, h, bytes(rgb))
+            return (w, h, _rgba_to_rgb(raw, w, h))
         except Exception:
             return None

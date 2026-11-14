@@ -10,7 +10,7 @@ pytest.importorskip("PyQt5")
 
 
 def _make_pdf(tmp_path, pages=3, width=300, height=400):
-    import fitz
+    import pymupdf as fitz
 
     path = tmp_path / "doc.pdf"
     doc = fitz.open()
@@ -170,7 +170,7 @@ def test_rotate_view_size_and_edit_mapping(tmp_path):
 
 def test_rotation_render_direction_is_clockwise(tmp_path):
     """Text at page top-left must land top-RIGHT of the rotated render."""
-    import fitz
+    import pymupdf as fitz
     from core.pdf_engine import PDFEngine
 
     path = tmp_path / "mark.pdf"
