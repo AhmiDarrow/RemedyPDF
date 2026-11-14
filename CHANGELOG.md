@@ -2,6 +2,45 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.4.6] — 2026-11-14
+
+### Fixed
+
+- **Password-protected PDFs** — opening an encrypted PDF now asks for its
+  password (up to three tries) instead of showing a blank page and failing on
+  every redraw. On Android the app explains that protected PDFs aren't
+  supported there yet.
+- **Saving keeps the password** — a PDF unlocked with a password is saved with
+  that same password (AES-256) instead of being written out unprotected.
+- **A failed open no longer closes your document** — trying to open a damaged,
+  empty, unsupported or locked file leaves the current document open on the
+  same page, and the error message says why the file couldn't be opened.
+- **Save when the file is locked** — if another program holds the PDF open,
+  Save now reports the failure and keeps your unsaved edits, instead of quietly
+  writing a separate `-export.pdf` copy without them.
+- **Repeated saves of EPUB/XPS/image documents** — after exporting to PDF,
+  Save writes to that same PDF again instead of creating a new
+  `-export.pdf` copy each time; the window title follows the file that was
+  actually written.
+- **Damaged pages** — a page that can't be read no longer crashes the viewer.
+- **Android native renderer fallback** — fixed the fallback PDF renderer used
+  when PyMuPDF is unavailable (it could never render a page, and colors were
+  swapped); it is also much faster.
+- **Android keyboard navigation** — arrow keys no longer turn more than one
+  page when the main screen is re-entered.
+
+### Security
+
+- **Updates download only from this project's GitHub Releases** — the
+  auto-updater refuses installer links that point anywhere other than
+  `github.com/AhmiDarrow/RemedyPDF/releases/download/…`.
+- **Safer minimum dependencies** — requires Pillow 10.3+ and PyMuPDF 1.24.3+.
+
+### Changed
+
+- Uses the modern `pymupdf` module name (the legacy `fitz` alias is deprecated
+  upstream), keeping compatibility with older PyMuPDF builds.
+
 ## [1.4.5] — 2026-08-18
 
 ### Fixed — packaging, update integrity default, hygiene

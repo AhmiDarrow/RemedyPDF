@@ -25,7 +25,13 @@ python src/main.py
 
 ## Version bump
 
-Edit **only** `src/__init__.py` `__version__`. `setup.py` and the app read it from there.
+`src/__init__.py` `__version__` is the source of truth (`setup.py` and the app read it),
+but the installer, `buildozer.spec`, import fallbacks and docs keep copies. Bump them all at once:
+
+```bash
+python scripts/bump_version.py X.Y.Z   # rewrite every copy
+python scripts/bump_version.py --check   # verify (also enforced by pytest)
+```
 
 ## Release
 

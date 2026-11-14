@@ -69,3 +69,6 @@ _fix_*.py
 _check_*.py
 _ship_*.py
 scripts/_verify_brand.py
+
+# Local scratch commit messages
+COMMIT_MSG.txt

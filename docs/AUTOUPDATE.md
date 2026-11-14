@@ -25,7 +25,8 @@ local/dev channels.
 
 - `find_installer_url(info)` — resolves the installer URL from
   `latest.json` `platforms.windows-x86_64.url`, else GitHub API assets
-  (setup → portable → generic `.exe`)
+  (setup → portable → generic `.exe`). Only `https://github.com/<owner>/<repo>/releases/download/…`
+  `.exe` URLs are accepted (`is_trusted_installer_url`); anything else is ignored
 - `find_installer_sha256(info)` — optional digest from the same channel
 - `download_update(url, dest, progress=…, cancel_check=…, expected_sha256=…)` —
   streamed download with progress, cancel, and integrity check
@@ -36,7 +37,7 @@ local/dev channels.
 - `check_for_update` keeps `url` / `html_url` as the **release page**; the
   installer binary stays on `platforms` / `find_installer_url`
 
-Version source of truth: `src/__init__.py` → `__version__`.
+Version source of truth: `src/__init__.py` → `__version__` (bump every copy with `python scripts/bump_version.py X.Y.Z`).
 
 ## Release pipeline
 
@@ -47,13 +48,13 @@ Tag push `v*`:
 3. Hash staged assets and generate `latest.json` (digests included when present):
    ```json
    {
-     "version": "1.4.5",
+     "version": "1.4.6",
      "notes": "…",
      "pub_date": "…",
-     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.5",
+     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.6",
      "platforms": {
        "windows-x86_64": {
-         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.5/RemedyPDF-1.4.5-windows-setup.exe",
+         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.6/RemedyPDF-1.4.6-windows-setup.exe",
          "sha256": "…"
        }
      }
