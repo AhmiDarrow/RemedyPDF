@@ -306,7 +306,16 @@ def build_windows_installer() -> None:
         if p.is_file():
             print(f"  {p.name}  ({p.stat().st_size} bytes)")
     if setup is None:
-        print("NOTE: installer missing — install Inno Setup 6 or re-run on CI.")
+        print(
+            "ERROR: installer missing — refusing to continue without "
+            "RemedyPDF-*-windows-setup.exe",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    portable = DIST / "RemedyPDF.exe"
+    if portable.is_file() and setup.read_bytes() == portable.read_bytes():
+        print("ERROR: setup exe is identical to the portable exe", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

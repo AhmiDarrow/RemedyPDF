@@ -163,5 +163,11 @@ def test_installer_ships_language_files():
         "ChineseSimplified.isl",
     ):
         assert name in iss
+    assert 'MessagesFile: "Languages\\ChineseSimplified.isl"' in iss
+    isl = ROOT / "installer" / "Languages" / "ChineseSimplified.isl"
+    text = isl.read_text(encoding="utf-8-sig")
+    assert "LanguageID=$0804" in text
+    assert "[Messages]" in text
+    assert not any(line.lstrip().startswith("#") for line in text.splitlines())
     assert 'Source: "{#DistDir}\\RemedyPDF\\*"' in iss
     assert "RemedyPDF" in iss
