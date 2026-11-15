@@ -91,12 +91,16 @@ jobs:
           for f in dist/RemedyPDF-*-windows-setup.exe dist/*Setup*.exe dist/*-setup.exe; do
             if [ -f "$f" ]; then SETUP="$f"; break; fi
           done
-          if [ -n "$SETUP" ]; then
-            cp "$SETUP" "dist/win/RemedyPDF-${VER}-windows-setup.exe"
-          else
-            echo "WARN: no Inno Setup output — shipping onefile as setup asset"
-            cp dist/RemedyPDF.exe "dist/win/RemedyPDF-${VER}-windows-setup.exe"
+          if [ -z "$SETUP" ]; then
+            echo "ERROR: Inno Setup did not produce a setup exe" >&2
+            ls -la dist || true
+            exit 1
           fi
+          if cmp -s "$SETUP" dist/RemedyPDF.exe; then
+            echo "ERROR: $SETUP is identical to the portable exe" >&2
+            exit 1
+          fi
+          cp "$SETUP" "dist/win/RemedyPDF-${VER}-windows-setup.exe"
           ls -la dist/win
 
       - name: Upload Windows artifacts
@@ -271,9 +275,16 @@ jobs:
             if [ -f "$f" ]; then AZIP_ARGS=(--android-zip-name "$(basename "$f")"); break; fi
           done
           if [ ! -f "dist/release/$SETUP" ]; then
-            if [ -f dist/release/RemedyPDF.exe ]; then
-              cp dist/release/RemedyPDF.exe "dist/release/$SETUP"
-            fi
+            echo "ERROR: missing $SETUP — refusing to publish the portable exe as the installer" >&2
+            exit 1
+          fi
+          if [ -f "dist/release/$EXE" ] && cmp -s "dist/release/$SETUP" "dist/release/$EXE"; then
+            echo "ERROR: $SETUP is identical to $EXE" >&2
+            exit 1
+          fi
+          if [ -f dist/release/RemedyPDF.exe ] && cmp -s "dist/release/$SETUP" dist/release/RemedyPDF.exe; then
+            echo "ERROR: $SETUP is identical to RemedyPDF.exe" >&2
+            exit 1
           fi
           if [ ! -f "dist/release/$EXE" ] && [ -f dist/release/RemedyPDF.exe ]; then
             cp dist/release/RemedyPDF.exe "dist/release/$EXE"
@@ -356,6 +367,7 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: RemedyPDF ${{ steps.ver.outputs.tag }}
           draft: false
+          overwrite_files: true
           generate_release_notes: true
           body: |
             ## RemedyPDF ${{ steps.ver.outputs.tag }}

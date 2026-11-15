@@ -58,7 +58,10 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; Official Simplified Chinese messages (Zhenghan Yang). Inno Setup 6.7.1 does
+; not ship this file, so the copy lives next to this script.
+; https://github.com/jrsoftware/issrc/blob/main/Files/Languages/ChineseSimplified.isl
+Name: "chinesesimplified"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [CustomMessages]
 english.AboutReleases=About RemedyPDF (Releases)

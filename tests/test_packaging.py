@@ -122,6 +122,15 @@ def test_release_workflow_has_token_and_platforms():
     assert "android" in yml.lower()
 
 
+def test_release_refuses_portable_as_setup():
+    yml = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    build = (ROOT / "build_windows.py").read_text(encoding="utf-8")
+    assert "shipping onefile as setup asset" not in yml
+    assert "identical to the portable exe" in yml
+    assert "refusing to continue without" in build
+    assert "NOTE: installer missing" not in build
+
+
 def test_docs_install_mentions_both_platforms():
     install = (ROOT / "docs" / "INSTALL.md").read_text(encoding="utf-8")
     assert "Windows" in install

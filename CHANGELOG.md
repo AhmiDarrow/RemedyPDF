@@ -14,6 +14,10 @@ Hi I'm Ahmi, hope this helps!
 - The first launch follows the system language. Settings → Language switches the interface and stores the choice with the rest of the profile.
 - Numbers, dates, and text for Japanese, Korean, and Chinese follow the language you pick.
 
+### Fixed
+
+- The Windows setup is a real per-user installer. The Simplified Chinese installer language ships with the app, because Inno Setup 6.7.1 does not include it. A missing installer no longer gets replaced by the portable program.
+
 ### Install and update
 
 - Windows setup: `RemedyPDF-1.5.0-windows-setup.exe` (per-user install, Start Menu, and an optional desktop shortcut).
