@@ -114,7 +114,7 @@ QScrollArea {{
     /* smoother flick feel on touch */
 }}
 #pageNavigator QPushButton {{
-    min-width: 72px;
+    min-width: 96px;
     min-height: {h}px;
 }}
 #pdfCanvas {{

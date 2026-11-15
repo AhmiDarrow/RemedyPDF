@@ -26,6 +26,7 @@ def main() -> int:
     # UI / utils
     from src.ui import theme, widgets, about  # noqa: F401
     from src.utils import brand, mobile, paths, updater  # noqa: F401
+    from src.i18n import LANGUAGES, t  # noqa: F401
 
     print(f"import_check OK version={__version__} repo={GITHUB_OWNER}/{GITHUB_REPO}")
     return 0

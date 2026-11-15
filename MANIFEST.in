@@ -7,5 +7,6 @@ recursive-include resources *
 recursive-include docs *
 recursive-include tests *
 recursive-include scripts *
+recursive-include src/i18n *.json
 include build_windows.py
 include build_android.py

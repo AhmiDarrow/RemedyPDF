@@ -49,10 +49,33 @@ RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "polish"; MessagesFile: "compiler:Languages\Polish.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
+[CustomMessages]
+english.AboutReleases=About RemedyPDF (Releases)
+spanish.AboutReleases=Acerca de RemedyPDF (versiones)
+french.AboutReleases=À propos de RemedyPDF (versions)
+german.AboutReleases=Über RemedyPDF (Versionen)
+brazilianportuguese.AboutReleases=Sobre o RemedyPDF (versões)
+italian.AboutReleases=Informazioni su RemedyPDF (versioni)
+russian.AboutReleases=О RemedyPDF (выпуски)
+polish.AboutReleases=O RemedyPDF (wydania)
+japanese.AboutReleases=RemedyPDF について (リリース)
+korean.AboutReleases=RemedyPDF 정보 (릴리스)
+chinesesimplified.AboutReleases=关于 RemedyPDF（发布）
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: checkedonce
-Name: "quicklaunchicon"; Description: "Create a &Quick Launch shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
 ; onedir build — install the whole folder (exe + _internal DLLs) so python312.dll
@@ -66,13 +89,13 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
-Name: "{group}\About {#MyAppName} (Releases)"; Filename: "{#MyAppURL}/releases"
-Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{group}\{cm:AboutReleases}"; Filename: "{#MyAppURL}/releases"
+Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall
 
 [Code]
 function InitializeSetup(): Boolean;

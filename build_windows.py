@@ -103,6 +103,7 @@ def build_onefile() -> Path:
     icon_arg = str(icon_ico if icon_ico.is_file() else icon_png)
     sep = ";" if sys.platform == "win32" else ":"
     resources_src = str((ROOT / "resources").resolve())
+    locales_src = str((ROOT / "src" / "i18n" / "locales").resolve())
     print("Building Windows onefile (RemedyPDF)…")
     print(f"  icon: {icon_arg}")
     print(f"  resources: {resources_src}")
@@ -117,10 +118,13 @@ def build_onefile() -> Path:
         "--onefile",
         "--windowed",
         f"--add-data={resources_src}{sep}resources",
+        f"--add-data={locales_src}{sep}i18n/locales",
         "--paths",
         str(ROOT),
         "--hidden-import",
         "src",
+        "--hidden-import",
+        "src.i18n",
         "--hidden-import",
         "src.core.app",
         "--hidden-import",
@@ -177,6 +181,7 @@ def build_onedir() -> Path:
     icon_arg = str(icon_ico if icon_ico.is_file() else icon_png)
     sep = ";" if sys.platform == "win32" else ":"
     resources_src = str((ROOT / "resources").resolve())
+    locales_src = str((ROOT / "src" / "i18n" / "locales").resolve())
     print("Building Windows onedir (RemedyPDF)…")
     cmd = [
         sys.executable,
@@ -189,10 +194,13 @@ def build_onedir() -> Path:
         "--onedir",
         "--windowed",
         f"--add-data={resources_src}{sep}resources",
+        f"--add-data={locales_src}{sep}i18n/locales",
         "--paths",
         str(ROOT),
         "--hidden-import",
         "src",
+        "--hidden-import",
+        "src.i18n",
         "--hidden-import",
         "src.core.app",
         "--hidden-import",

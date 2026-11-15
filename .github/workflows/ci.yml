@@ -38,6 +38,9 @@ jobs:
           test -f resources/logo.png
           test -f resources/logo_ui.png
 
+      - name: Locale catalogs
+        run: python scripts/check_i18n.py
+
       - name: Run pytest
         env:
           QT_QPA_PLATFORM: offscreen
