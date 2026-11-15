@@ -1,5 +1,8 @@
 PyQt5>=5.15.0
-PyMuPDF>=1.24.3
+# PyMuPDF 2.x installs pymupdf-layout and onnxruntime. onnxruntime 1.32 crashes
+# PyInstaller 6.22's isolated analysis subprocess on Windows (exit 3221225477).
+# 1.4.5 shipped 1.28.x. The app uses the 1.24+ document API, not layout analysis.
+PyMuPDF>=1.24.3,<2
 Pillow>=10.3.0
 pytest>=7.0.0
 pyinstaller>=6.0.0

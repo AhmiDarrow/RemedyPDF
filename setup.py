@@ -34,7 +34,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "PyQt5>=5.15.0",
-        "PyMuPDF>=1.24.3",
+        "PyMuPDF>=1.24.3,<2",
         "Pillow>=10.3.0",
     ],
     extras_require={

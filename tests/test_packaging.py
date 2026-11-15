@@ -101,6 +101,17 @@ def test_requirements_drop_unused_pypdf2():
     assert "PyQt5" in text
 
 
+def test_windows_build_avoids_onnxruntime():
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    setup = (ROOT / "setup.py").read_text(encoding="utf-8")
+    build = (ROOT / "build_windows.py").read_text(encoding="utf-8")
+    assert "PyMuPDF>=1.24.3,<2" in req
+    assert "PyMuPDF>=1.24.3,<2" in setup
+    assert "onnxruntime" in build
+    assert "pymupdf.layout" in build
+    assert "PyQt5.uic.port_v2" in build
+
+
 def test_release_workflow_has_token_and_platforms():
     yml = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "secrets.GITHUB_TOKEN" in yml

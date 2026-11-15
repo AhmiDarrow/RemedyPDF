@@ -23,6 +23,25 @@ def _version() -> str:
     return "0.0.0"
 
 
+# PyMuPDF 2.x pulls pymupdf-layout, which imports onnxruntime. PyInstaller 6.22's
+# isolated subprocess access-violates (3221225477) while importing onnxruntime
+# 1.32 on Windows. RemedyPDF does not use layout analysis. port_v2 is the
+# removed Python 2 PyQt5 UIC port; the stock hook errors when it looks for it.
+_EXCLUDES = (
+    "onnxruntime",
+    "pymupdf.layout",
+    "pymupdf4llm",
+    "PyQt5.uic.port_v2",
+)
+
+
+def _pyinstaller_excludes() -> list[str]:
+    args: list[str] = []
+    for name in _EXCLUDES:
+        args.extend(["--exclude-module", name])
+    return args
+
+
 def _find_iscc() -> Path | None:
     cands = [
         INNO_DIR / "ISCC.exe",
@@ -124,6 +143,7 @@ def build_onefile() -> Path:
         "PyQt5",
         "--collect-all",
         "pymupdf",
+        *_pyinstaller_excludes(),
         "--icon",
         icon_arg,
         "--distpath",
@@ -195,6 +215,7 @@ def build_onedir() -> Path:
         "PyQt5",
         "--collect-all",
         "pymupdf",
+        *_pyinstaller_excludes(),
         "--icon",
         icon_arg,
         "--distpath",

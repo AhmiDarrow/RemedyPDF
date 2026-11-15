@@ -28,6 +28,11 @@ All notable changes to RemedyPDF are documented in this file.
   swapped); it is also much faster.
 - **Android keyboard navigation** — arrow keys no longer turn more than one
   page when the main screen is re-entered.
+- **Windows installer build** — PyMuPDF stays on the 1.x line (`>=1.24.3,<2`).
+  PyMuPDF 2.x installs onnxruntime, and PyInstaller 6.22's isolated subprocess
+  crashes while importing it on Windows (exit 3221225477). The app does not
+  use layout analysis. The Windows build also excludes onnxruntime,
+  pymupdf.layout, pymupdf4llm, and the removed PyQt5.uic.port_v2 modules.
 
 ### Security
 
