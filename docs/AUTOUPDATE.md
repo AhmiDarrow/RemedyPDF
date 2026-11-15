@@ -48,13 +48,13 @@ Tag push `v*`:
 3. Hash staged assets and generate `latest.json` (digests included when present):
    ```json
    {
-     "version": "1.4.6",
+     "version": "1.5.0",
      "notes": "…",
      "pub_date": "…",
-     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.4.6",
+     "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/tag/v1.5.0",
      "platforms": {
        "windows-x86_64": {
-         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.4.6/RemedyPDF-1.4.6-windows-setup.exe",
+         "url": "https://github.com/AhmiDarrow/RemedyPDF/releases/download/v1.5.0/RemedyPDF-1.5.0-windows-setup.exe",
          "sha256": "…"
        }
      }

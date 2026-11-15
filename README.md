@@ -163,7 +163,7 @@ Touch/APK notes:
 1. Bump the version everywhere with `python scripts/bump_version.py X.Y.Z` (`src/__init__.py` is the source of truth; installer, buildozer and fallbacks follow)
 2. Update `CHANGELOG.md`
 3. Push to `main` → CI must be green
-4. Tag and push: `git tag v1.4.6 && git push origin v1.4.6`
+4. Tag and push: `git tag v1.5.0 && git push origin v1.5.0`
 5. GitHub Actions **Release** workflow builds:
    - Windows Setup installer + portable exe
    - Android mobile source zip (APK only if `build_apk=true`)
