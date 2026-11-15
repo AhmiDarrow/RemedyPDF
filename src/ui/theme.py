@@ -456,7 +456,10 @@ def build_stylesheet(theme: str | Dict[str, str] | None = None) -> str:
 QWidget {{
     background-color: {p['window']};
     color: {p['text']};
-    font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif;
+    /* font-family is NOT set here. A QSS family list picks the first installed
+       face for the whole widget and blocks CJK fallback. The app font
+       (QFont.setFamilies) supplies Segoe UI plus Yu Gothic / Malgun Gothic /
+       Microsoft YaHei. Remedy Sans and Ahmi Pixel are Latin-only and unused. */
     font-size: 13px;
     /* Improve glyph clarity on mixed DPI */
     font-weight: 400;
@@ -772,7 +775,7 @@ QMessageBox QLabel, QInputDialog QLabel, QDialog QLabel {{
     background: transparent;
 }}
 QDialogButtonBox QPushButton {{
-    min-width: 80px;
+    min-width: 96px;
 }}
 
 /* ----- Tooltips ----- */
@@ -817,7 +820,7 @@ QLineEdit#searchField {{
     border: 1px solid {p['input_border']};
     border-radius: 8px;
     padding: 8px 12px;
-    min-width: 220px;
+    min-width: 260px;
 }}
 QLineEdit#searchField:focus {{
     border: 1px solid {p['accent']};
@@ -900,7 +903,12 @@ def toggle_theme(current: str) -> str:
 
 
 def theme_label(name: str) -> str:
-    return THEME_LABELS.get((name or "").lower(), name or DEFAULT_THEME)
+    raw = THEME_LABELS.get((name or "").lower(), name or DEFAULT_THEME)
+    try:
+        from i18n import t
+    except ImportError:
+        from src.i18n import t  # type: ignore
+    return t(raw) if raw else raw
 
 
 def list_themes() -> tuple[str, ...]:
@@ -908,7 +916,12 @@ def list_themes() -> tuple[str, ...]:
 
 
 def page_filter_label(name: str) -> str:
-    return PAGE_FILTER_LABELS.get((name or "none").lower(), name or "none")
+    raw = PAGE_FILTER_LABELS.get((name or "none").lower(), name or "none")
+    try:
+        from i18n import t
+    except ImportError:
+        from src.i18n import t  # type: ignore
+    return t(raw) if raw else raw
 
 
 def list_page_filters() -> tuple[str, ...]:

@@ -424,7 +424,7 @@ def download_update(
 
     if _cancelled():
         _cleanup_partial()
-        raise UpdateCancelled("Update download cancelled")
+        raise UpdateCancelled(_tr("Update download cancelled"))
 
     try:
         with urlopen(req, timeout=timeout) as resp:
@@ -435,7 +435,7 @@ def download_update(
             with open(dest, "wb") as fh:
                 while True:
                     if _cancelled():
-                        raise UpdateCancelled("Update download cancelled")
+                        raise UpdateCancelled(_tr("Update download cancelled"))
                     chunk = resp.read(65536)
                     if not chunk:
                         break
@@ -447,7 +447,7 @@ def download_update(
                         except Exception:  # noqa: BLE001
                             pass
                     if _cancelled():
-                        raise UpdateCancelled("Update download cancelled")
+                        raise UpdateCancelled(_tr("Update download cancelled"))
     except UpdateCancelled:
         _cleanup_partial()
         raise
@@ -457,7 +457,7 @@ def download_update(
 
     if done <= 0:
         _cleanup_partial()
-        raise OSError("Empty download payload")
+        raise OSError(_tr("Empty download payload"))
 
     if exp:
         try:
@@ -535,7 +535,7 @@ def install_update(
     expected = find_installer_sha256(info)
     if require_sha256 and not expected:
         raise OSError(
-            "Release channel did not publish an installer SHA-256; refusing install"
+            _tr("Release channel did not publish an installer SHA-256; refusing install")
         )
     try:
         download_update(
@@ -567,7 +567,7 @@ def install_update(
                 os.remove(dest)
         except Exception:  # noqa: BLE001
             pass
-        raise OSError(f"Update download failed: {exc}") from exc
+        raise OSError(_tr("Update download failed: {exc}", exc=exc)) from exc
     if cancel_check is not None:
         try:
             if cancel_check():
@@ -576,36 +576,49 @@ def install_update(
                         os.remove(dest)
                 except Exception:  # noqa: BLE001
                     pass
-                raise UpdateCancelled("Update install cancelled")
+                raise UpdateCancelled(_tr("Update install cancelled"))
         except UpdateCancelled:
             raise
         except Exception:  # noqa: BLE001
             pass
     if not launch_installer(dest):
-        raise OSError("Could not launch the downloaded installer")
+        raise OSError(_tr("Could not launch the downloaded installer"))
     return dest
+
+
+def _tr(key: str, **kwargs: object) -> str:
+    try:
+        from i18n import t
+    except ImportError:
+        from src.i18n import t  # type: ignore
+    return t(key, **kwargs)
 
 
 def format_update_message(info: Optional[dict[str, Any]], current_version: str) -> str:
     """Human-readable status line for About / message boxes."""
     if info is None:
-        return f"You're on the latest version ({current_version})."
+        return _tr("You're on the latest version ({version}).", version=current_version)
     tag = str(info.get("tag") or "?")
     url = str(info.get("url") or GITHUB_RELEASES_URL)
     name = str(info.get("name") or tag)
-    return (
-        f"Update available: v{tag} (you have {current_version}).\n"
-        f"{name}\n"
-        f"{url}"
+    return _tr(
+        "Update available: v{tag} (you have {version}).\n{name}\n{url}",
+        tag=tag,
+        version=current_version,
+        name=name,
+        url=url,
     )
 
 
 def update_status_message(info: Optional[dict[str, Any]], current_version: str) -> str:
     """Alias used by About dialog (SecretSticky wording)."""
     if info is None:
-        return f"You're on the latest version ({current_version})."
+        return _tr("You're on the latest version ({version}).", version=current_version)
     tag = str(info.get("tag") or "?")
-    return f"Update {tag} is available — use Help → Check for Updates to download and install."
+    return _tr(
+        "Update {tag} is available — use Help → Check for Updates to download and install.",
+        tag=tag,
+    )
 
 
 __all__ = [

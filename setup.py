@@ -30,7 +30,7 @@ setup(
     # Keep the `src` package prefix so `from src import __version__` and
     # `from src.core…` work after pip install (matches frozen/dev imports).
     packages=find_packages(include=["src", "src.*"]),
-    package_data={"src": ["py.typed"]},
+    package_data={"src": ["py.typed", "i18n/locales/*.json"]},
     include_package_data=True,
     install_requires=[
         "PyQt5>=5.15.0",

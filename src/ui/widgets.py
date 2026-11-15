@@ -16,6 +16,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+try:
+    from i18n import format_int, t
+except ImportError:  # package-style
+    from src.i18n import format_int, t  # type: ignore
+
 
 # Long-press threshold for mobile hold-to-edit (ms)
 LONG_PRESS_MS = 450
@@ -36,23 +41,21 @@ class PageNavigator(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(10)
 
-        self.prev_btn = QPushButton("◀ Prev")
-        self.prev_btn.setToolTip("Previous page (← or PgUp)")
+        self.prev_btn = QPushButton()
         self.prev_btn.setMinimumHeight(TOUCH_MIN_PX)
-        self.next_btn = QPushButton("Next ▶")
-        self.next_btn.setToolTip("Next page (→ or PgDown)")
+        self.next_btn = QPushButton()
         self.next_btn.setMinimumHeight(TOUCH_MIN_PX)
         self.next_btn.setObjectName("primaryButton")
         self.page_spin = QSpinBox()
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(1)
-        self.page_spin.setToolTip("Go to page")
-        self.page_spin.setMinimumWidth(72)
+        self.page_spin.setMinimumWidth(84)
         self.page_spin.setMinimumHeight(TOUCH_MIN_PX)
-        self.label = QLabel("Page")
+        self.label = QLabel()
         self.label.setObjectName("mutedLabel")
-        self.count_label = QLabel("/ 1")
+        self.count_label = QLabel()
         self.count_label.setObjectName("mutedLabel")
+        self.retranslate()
 
         layout.addWidget(self.prev_btn)
         layout.addWidget(self.label)
@@ -69,9 +72,22 @@ class PageNavigator(QWidget):
         self.page_spin.blockSignals(True)
         self.page_spin.setMaximum(total)
         self.page_spin.blockSignals(False)
-        self.count_label.setText(f"/ {total}")
+        self._refresh_count()
         self.prev_btn.setEnabled(total > 1)
         self.next_btn.setEnabled(total > 1)
+
+    def retranslate(self) -> None:
+        self.prev_btn.setText(t("◀ Prev"))
+        self.prev_btn.setToolTip(t("Previous page (← or PgUp)"))
+        self.next_btn.setText(t("Next ▶"))
+        self.next_btn.setToolTip(t("Next page (→ or PgDown)"))
+        self.page_spin.setToolTip(t("Go to page"))
+        self.label.setText(t("Page"))
+        self._refresh_count()
+
+    def _refresh_count(self) -> None:
+        total = max(1, self.page_spin.maximum())
+        self.count_label.setText(t("/ {total}", total=format_int(total)))
 
     def set_step(self, step: int) -> None:
         """Page step for Prev/Next (1 single, 2 book-mode spread)."""
@@ -114,17 +130,14 @@ class SearchBar(QWidget):
 
         self.field = QLineEdit()
         self.field.setObjectName("searchField")
-        self.field.setPlaceholderText("Find in document…")
         self.field.setClearButtonEnabled(True)
         self.field.setMinimumHeight(TOUCH_MIN_PX - 4)
         self.field.returnPressed.connect(self._emit_search)
 
         self.prev_btn = QPushButton("↑")
-        self.prev_btn.setToolTip("Previous match (Shift+Enter)")
         self.prev_btn.setFixedWidth(TOUCH_MIN_PX)
         self.prev_btn.setMinimumHeight(TOUCH_MIN_PX)
         self.next_btn = QPushButton("↓")
-        self.next_btn.setToolTip("Next match (Enter)")
         self.next_btn.setFixedWidth(TOUCH_MIN_PX)
         self.next_btn.setMinimumHeight(TOUCH_MIN_PX)
         self.next_btn.setObjectName("primaryButton")
@@ -135,10 +148,11 @@ class SearchBar(QWidget):
         self.close_btn = QPushButton("✕")
         self.close_btn.setFixedWidth(TOUCH_MIN_PX)
         self.close_btn.setMinimumHeight(TOUCH_MIN_PX)
-        self.close_btn.setToolTip("Close (Esc)")
         self.close_btn.clicked.connect(self._close)
 
-        layout.addWidget(QLabel("Find"))
+        self.find_label = QLabel()
+        layout.addWidget(self.find_label)
+        self.retranslate()
         layout.addWidget(self.field, 1)
         layout.addWidget(self.prev_btn)
         layout.addWidget(self.next_btn)
@@ -150,6 +164,13 @@ class SearchBar(QWidget):
 
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=self._close)
         QShortcut(QKeySequence("Shift+Return"), self.field, activated=self.prev_result.emit)
+
+    def retranslate(self) -> None:
+        self.find_label.setText(t("Find"))
+        self.field.setPlaceholderText(t("Find in document…"))
+        self.prev_btn.setToolTip(t("Previous match (Shift+Enter)"))
+        self.next_btn.setToolTip(t("Next match (Enter)"))
+        self.close_btn.setToolTip(t("Close (Esc)"))
 
     def _emit_search(self) -> None:
         text = self.field.text().strip()
@@ -191,10 +212,13 @@ class PDFCanvas(QLabel):
         super().__init__(parent)
         self.setObjectName("pdfCanvas")
         self.setAlignment(Qt.AlignCenter)
+        self.setWordWrap(True)
         self.setMinimumSize(280, 360)
         self.setText(
-            "Open a PDF or EPUB to begin\n\n"
-            "Double-click (PC) or hold (mobile) to add text"
+            t(
+                "Open a PDF or EPUB to begin\n\n"
+                "Double-click (PC) or hold (mobile) to add text"
+            )
         )
         self.setCursor(Qt.ArrowCursor)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -229,7 +253,20 @@ class PDFCanvas(QLabel):
         self._page_size = (float(width_pts), float(height_pts))
         self._zoom = max(0.01, float(zoom))
 
-    def clear_page(self, message: str = "Open a PDF to begin") -> None:
+    def placeholder_text(self) -> str:
+        return t(
+            "Open a PDF or EPUB to begin\n\n"
+            "Double-click (PC) or hold (mobile) to add text"
+        )
+
+    def retranslate_placeholder(self) -> None:
+        """Refresh the empty-state caption. An open page pixmap is left alone."""
+        pix = self.pixmap()
+        if pix is not None and not pix.isNull():
+            return
+        self.setText(self.placeholder_text())
+
+    def clear_page(self, message: Optional[str] = None) -> None:
         self._pixmap_size = (0, 0)
         self._page_size = (0.0, 0.0)
         self.setPixmap(QPixmap())
@@ -237,7 +274,7 @@ class PDFCanvas(QLabel):
         self.setMinimumSize(280, 360)
         self.setMaximumSize(16777215, 16777215)
         self.setProperty("empty", True)
-        self.setText(message)
+        self.setText(message if message is not None else t("Open a PDF to begin"))
         # Force stylesheet re-eval so canvas_text color follows active theme
         try:
             self.style().unpolish(self)
@@ -252,7 +289,7 @@ class PDFCanvas(QLabel):
         viewport and scroll horizontally — both sides stay visible.
         """
         if pixmap is None or pixmap.isNull():
-            self.clear_page("Unable to render page")
+            self.clear_page(t("Unable to render page"))
             return
         self.setProperty("empty", False)
         self.setText("")  # clear placeholder so pixmap paints fully

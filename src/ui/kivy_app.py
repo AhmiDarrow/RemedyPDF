@@ -39,6 +39,14 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.textinput import TextInput
 
 from src import __version__ as VERSION
+from src.i18n import (
+    LANGUAGES,
+    current_language,
+    init_i18n,
+    language_native_name,
+    set_language,
+    t,
+)
 
 # Try PyMuPDF engine first (desktop). On Android, use native PdfRenderer.
 _PDF_ENGINE = None
@@ -139,7 +147,7 @@ class MainScreen(Screen):
             spacing=6,
         )
 
-        btn_open = Button(text="Open", size_hint_x=None, width=70)
+        btn_open = Button(text=t("Open"), size_hint_x=None, width=120)
         btn_open.bind(on_release=self._on_open)
         toolbar.add_widget(btn_open)
 
@@ -182,6 +190,14 @@ class MainScreen(Screen):
 
         toolbar.add_widget(Label(size_hint_x=1))  # spacer
 
+        self._lang_btn = Button(
+            text=language_native_name(current_language()),
+            size_hint_x=None,
+            width=210,
+        )
+        self._lang_btn.bind(on_release=self._on_language)
+        toolbar.add_widget(self._lang_btn)
+
         root.add_widget(toolbar)
 
         # ---- PDF Viewer (pinch-zoom scatter) ----
@@ -190,7 +206,7 @@ class MainScreen(Screen):
 
         # ---- Status bar ----
         status = Label(
-            text=f"RemedyPDF {VERSION} — Android",
+            text=t("RemedyPDF {version} — Android", version=VERSION),
             size_hint_y=None,
             height=28,
             halign="center",
@@ -317,11 +333,11 @@ class MainScreen(Screen):
             height=48,
             spacing=8,
         )
-        btn_cancel = Button(text="Cancel")
-        btn_open_sel = Button(text="Open Selected")
+        btn_cancel = Button(text=t("Cancel"))
+        btn_open_sel = Button(text=t("Open Selected"))
 
         popup = Popup(
-            title="Open Document",
+            title=t("Open Document"),
             content=content,
             size_hint=(0.95, 0.85),
             auto_dismiss=False,
@@ -339,14 +355,16 @@ class MainScreen(Screen):
                 else:
                     reason = getattr(self.engine, "last_error", "")
                     if reason == "password":
-                        why = "Password-protected PDFs aren't supported here yet."
+                        why = t("Password-protected PDFs aren't supported here yet.")
                     elif reason == "empty":
-                        why = "The document has no pages."
+                        why = t("The document has no pages.")
                     else:
-                        why = "The file is damaged or not a supported format."
+                        why = t("The file is damaged or not a supported format.")
                     err = Popup(
-                        title="Error",
-                        content=Label(text=f"Could not open:\n{path}\n\n{why}"),
+                        title=t("Error"),
+                        content=Label(
+                            text=t("Could not open:\n{path}\n\n{why}", path=path, why=why)
+                        ),
                         size_hint=(0.7, 0.3),
                     )
                     err.open()
@@ -360,6 +378,30 @@ class MainScreen(Screen):
 
         popup.open()
 
+    def _on_language(self, _btn) -> None:
+        """Pick a language by its native name and rebuild this screen."""
+        box = BoxLayout(orientation="vertical", spacing=4, padding=8)
+        popup = Popup(
+            title=t("Language"),
+            content=box,
+            size_hint=(0.86, 0.92),
+        )
+
+        def _choose(code: str):
+            def _fire(_instance) -> None:
+                set_language(code, persist=True)
+                popup.dismiss()
+                self.on_enter()
+
+            return _fire
+
+        for code, native in LANGUAGES:
+            mark = "✓ " if code == current_language() else ""
+            button = Button(text=f"{mark}{native}", size_hint_y=None, height=44)
+            button.bind(on_release=_choose(code))
+            box.add_widget(button)
+        popup.open()
+
 
 class RemedyPDFApp(App):
     """Kivy application entry for Android (and desktop test)."""
@@ -367,6 +409,7 @@ class RemedyPDFApp(App):
     title = "RemedyPDF"
 
     def build(self):
+        init_i18n(sys.argv)
         self.icon = str(ROOT / "resources" / "icon.png")
         sm = ScreenManager()
         sm.add_widget(MainScreen(name="main"))

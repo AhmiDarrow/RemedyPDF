@@ -118,6 +118,41 @@ except ImportError:  # script-style imports
         open_url,
     )
 
+try:
+    from i18n import (
+        LANGUAGES,
+        apply_qt_locale,
+        apply_ui_font,
+        current_language,
+        format_int,
+        format_percent,
+        init_i18n,
+        iter_document_args,
+        localized_image_filter,
+        localized_open_filter,
+        localized_save_filter,
+        set_language,
+        t,
+        tn,
+    )
+except ImportError:  # package-style
+    from src.i18n import (  # type: ignore
+        LANGUAGES,
+        apply_qt_locale,
+        apply_ui_font,
+        current_language,
+        format_int,
+        format_percent,
+        init_i18n,
+        iter_document_args,
+        localized_image_filter,
+        localized_open_filter,
+        localized_save_filter,
+        set_language,
+        t,
+        tn,
+    )
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RESOURCES_DIR = resources_dir()
 
@@ -174,14 +209,14 @@ class _UpdateInstallWorker(QThread):
                 self.finished_ok.emit(path)
             else:
                 # install_update returns None only when no installer URL exists
-                self.failed.emit("No Windows installer available for this release.")
+                self.failed.emit(t("No Windows installer available for this release."))
         except UpdateCancelled:
             self.cancelled.emit()
         except Exception as exc:  # noqa: BLE001
             if self._cancel_requested:
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc) or "Update install failed")
+                self.failed.emit(str(exc) or t("Update install failed"))
 
 
 class RemedyPDFApp(QMainWindow):
@@ -225,6 +260,7 @@ class RemedyPDFApp(QMainWindow):
         self.scroll.viewport().installEventFilter(self)
         self.canvas.installEventFilter(self)
         apply_theme(QApplication.instance() or self, self._theme, mobile=self._mobile or self._touch)
+        apply_ui_font(QApplication.instance(), self._ui_scale)
         # Match document ink/paper to theme text colors from the start
         self._apply_theme_page_colors(self._theme)
         self._update_status()
@@ -275,9 +311,9 @@ class RemedyPDFApp(QMainWindow):
         self.canvas.pinch_zoom.connect(self._on_pinch_zoom)
         self.canvas.pinch_finished.connect(self._on_pinch_finished)
         if self._touch or self._mobile:
-            self.canvas.setToolTip("Hold on the page to add text")
+            self.canvas.setToolTip(t("Hold on the page to add text"))
         else:
-            self.canvas.setToolTip("Double-click the page to add text")
+            self.canvas.setToolTip(t("Double-click the page to add text"))
         self.scroll.setWidget(self.canvas)
         layout.addWidget(self.scroll, 1)
 
@@ -291,126 +327,126 @@ class RemedyPDFApp(QMainWindow):
     def _build_menus(self) -> None:
         menubar = self.menuBar()
 
-        file_menu = menubar.addMenu("&File")
-        open_act = QAction("&Open…", self)
+        file_menu = menubar.addMenu(t("&File"))
+        open_act = QAction(t("&Open…"), self)
         open_act.setShortcut(QKeySequence.Open)
         open_act.triggered.connect(lambda: self.open_document())
         file_menu.addAction(open_act)
 
-        save_act = QAction("&Save", self)
+        save_act = QAction(t("&Save"), self)
         save_act.setShortcut(QKeySequence.Save)
         save_act.triggered.connect(self.save_document)
         file_menu.addAction(save_act)
 
-        save_as_act = QAction("Save &As…", self)
+        save_as_act = QAction(t("Save &As…"), self)
         save_as_act.setShortcut(QKeySequence.SaveAs)
         save_as_act.triggered.connect(self.save_document_as)
         file_menu.addAction(save_as_act)
 
-        close_act = QAction("&Close Document", self)
+        close_act = QAction(t("&Close Document"), self)
         close_act.setShortcut("Ctrl+W")
-        close_act.setToolTip("Close the current document (Ctrl+W)")
+        close_act.setToolTip(t("Close the current document (Ctrl+W)"))
         close_act.triggered.connect(self.close_document)
         file_menu.addAction(close_act)
 
         file_menu.addSeparator()
-        quit_act = QAction("&Quit", self)
+        quit_act = QAction(t("&Quit"), self)
         quit_act.setShortcut(QKeySequence.Quit)
         quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
 
-        edit_menu = menubar.addMenu("&Edit")
-        add_text_act = QAction("Add &Text…", self)
+        edit_menu = menubar.addMenu(t("&Edit"))
+        add_text_act = QAction(t("Add &Text…"), self)
         add_text_act.setShortcut("Ctrl+T")
         add_text_act.triggered.connect(self.add_text)
         edit_menu.addAction(add_text_act)
 
-        add_image_act = QAction("Add &Image…", self)
+        add_image_act = QAction(t("Add &Image…"), self)
         add_image_act.triggered.connect(self.add_image)
         edit_menu.addAction(add_image_act)
 
-        find_act = QAction("&Find…", self)
+        find_act = QAction(t("&Find…"), self)
         find_act.setShortcut(QKeySequence.Find)
         find_act.triggered.connect(self._show_find)
         edit_menu.addAction(find_act)
 
-        view_menu = menubar.addMenu("&View")
-        zoom_in = QAction("Zoom &In", self)
+        view_menu = menubar.addMenu(t("&View"))
+        zoom_in = QAction(t("Zoom &In"), self)
         zoom_in.setShortcut(QKeySequence.ZoomIn)
         zoom_in.triggered.connect(lambda: self.adjust_zoom(PDFEngine.ZOOM_COARSE))
         view_menu.addAction(zoom_in)
 
-        zoom_out = QAction("Zoom &Out", self)
+        zoom_out = QAction(t("Zoom &Out"), self)
         zoom_out.setShortcut(QKeySequence.ZoomOut)
         zoom_out.triggered.connect(lambda: self.adjust_zoom(-PDFEngine.ZOOM_COARSE))
         view_menu.addAction(zoom_out)
 
-        fine_in = QAction("Fine Zoom In (1%)", self)
+        fine_in = QAction(t("Fine Zoom In (1%)"), self)
         fine_in.setShortcut("Ctrl+Shift+=")
         fine_in.triggered.connect(lambda: self.adjust_zoom(PDFEngine.ZOOM_FINE))
         view_menu.addAction(fine_in)
 
-        fine_out = QAction("Fine Zoom Out (1%)", self)
+        fine_out = QAction(t("Fine Zoom Out (1%)"), self)
         fine_out.setShortcut("Ctrl+Shift+-")
         fine_out.triggered.connect(lambda: self.adjust_zoom(-PDFEngine.ZOOM_FINE))
         view_menu.addAction(fine_out)
 
-        reset_act = QAction("&Reset Zoom", self)
+        reset_act = QAction(t("&Reset Zoom"), self)
         reset_act.setShortcut("Ctrl+0")
-        reset_act.setToolTip("Reset zoom to default (Ctrl+0)")
+        reset_act.setToolTip(t("Reset zoom to default (Ctrl+0)"))
         reset_act.triggered.connect(self.reset_zoom)
         view_menu.addAction(reset_act)
 
         view_menu.addSeparator()
-        fit_w = QAction("Fit &Width", self)
+        fit_w = QAction(t("Fit &Width"), self)
         fit_w.setShortcut("Ctrl+1")
-        fit_w.setToolTip("Scale page/spread to viewport width")
+        fit_w.setToolTip(t("Scale page/spread to viewport width"))
         fit_w.triggered.connect(lambda: self.fit_view("width"))
         view_menu.addAction(fit_w)
 
-        fit_p = QAction("Fit &Page", self)
+        fit_p = QAction(t("Fit &Page"), self)
         fit_p.setShortcut("Ctrl+2")
-        fit_p.setToolTip("Scale page/spread to fit viewport")
+        fit_p.setToolTip(t("Scale page/spread to fit viewport"))
         fit_p.triggered.connect(lambda: self.fit_view("page"))
         view_menu.addAction(fit_p)
 
-        fit_h = QAction("Fit &Height", self)
+        fit_h = QAction(t("Fit &Height"), self)
         fit_h.setShortcut("Ctrl+3")
-        fit_h.setToolTip("Scale page/spread to viewport height")
+        fit_h.setToolTip(t("Scale page/spread to viewport height"))
         fit_h.triggered.connect(lambda: self.fit_view("height"))
         view_menu.addAction(fit_h)
 
         view_menu.addSeparator()
-        self.book_act = QAction("&Book Mode", self)
+        self.book_act = QAction(t("&Book Mode"), self)
         self.book_act.setCheckable(True)
         self.book_act.setShortcut("Ctrl+B")
-        self.book_act.setToolTip("Two-page spread — both sides (0+1, 2+3, …)")
+        self.book_act.setToolTip(t("Two-page spread — both sides (0+1, 2+3, …)"))
         self.book_act.triggered.connect(self.toggle_book_mode)
         view_menu.addAction(self.book_act)
 
-        self.fullscreen_act = QAction("&Full Screen", self)
+        self.fullscreen_act = QAction(t("&Full Screen"), self)
         self.fullscreen_act.setCheckable(True)
         self.fullscreen_act.setShortcut("F11")
-        self.fullscreen_act.setToolTip("Toggle full screen (F11 / Esc)")
+        self.fullscreen_act.setToolTip(t("Toggle full screen (F11 / Esc)"))
         self.fullscreen_act.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(self.fullscreen_act)
 
         view_menu.addSeparator()
-        rot_r = QAction("Rotate &Right", self)
+        rot_r = QAction(t("Rotate &Right"), self)
         rot_r.setShortcut("Ctrl+R")
-        rot_r.setToolTip("Rotate the view 90° clockwise (Ctrl+R)")
+        rot_r.setToolTip(t("Rotate the view 90° clockwise (Ctrl+R)"))
         rot_r.triggered.connect(self.rotate_right)
         view_menu.addAction(rot_r)
 
-        rot_l = QAction("Rotate &Left", self)
+        rot_l = QAction(t("Rotate &Left"), self)
         rot_l.setShortcut("Ctrl+Shift+R")
-        rot_l.setToolTip("Rotate the view 90° counter-clockwise (Ctrl+Shift+R)")
+        rot_l.setToolTip(t("Rotate the view 90° counter-clockwise (Ctrl+Shift+R)"))
         rot_l.triggered.connect(self.rotate_left)
         view_menu.addAction(rot_l)
 
         view_menu.addSeparator()
         # Visibility / reading themes
-        theme_menu = view_menu.addMenu("Visibility &Theme")
+        theme_menu = view_menu.addMenu(t("Visibility &Theme"))
         self._theme_actions = {}
         for key in THEME_ORDER:
             act = QAction(theme_label(key), self)
@@ -420,30 +456,30 @@ class RemedyPDFApp(QMainWindow):
             theme_menu.addAction(act)
             self._theme_actions[key] = act
 
-        theme_act = QAction("Cycle &Theme", self)
+        theme_act = QAction(t("Cycle &Theme"), self)
         theme_act.setShortcut("Ctrl+Shift+T")
-        theme_act.setToolTip("Cycle normal / dark / light / high-contrast / sepia / night")
+        theme_act.setToolTip(t("Cycle normal / dark / light / high-contrast / sepia / night"))
         theme_act.triggered.connect(self._toggle_theme)
         view_menu.addAction(theme_act)
 
-        hc_act = QAction("&High Contrast", self)
+        hc_act = QAction(t("&High Contrast"), self)
         hc_act.setShortcut("Ctrl+Shift+H")
         hc_act.triggered.connect(lambda: self.set_theme("high_contrast"))
         view_menu.addAction(hc_act)
 
-        sepia_act = QAction("&Sepia (paper)", self)
+        sepia_act = QAction(t("&Sepia (paper)"), self)
         sepia_act.setShortcut("Ctrl+Shift+S")
         sepia_act.triggered.connect(lambda: self.set_theme("sepia"))
         view_menu.addAction(sepia_act)
 
-        night_act = QAction("&Night (OLED)", self)
+        night_act = QAction(t("&Night (OLED)"), self)
         night_act.setShortcut("Ctrl+Shift+N")
         night_act.triggered.connect(lambda: self.set_theme("night"))
         view_menu.addAction(night_act)
 
         view_menu.addSeparator()
         # Page appearance filters (document pixels — independent of chrome theme)
-        filter_menu = view_menu.addMenu("Page &Appearance")
+        filter_menu = view_menu.addMenu(t("Page &Appearance"))
         self._filter_actions = {}
         for key in PDFEngine.FILTER_NAMES:
             act = QAction(page_filter_label(key), self)
@@ -453,126 +489,139 @@ class RemedyPDFApp(QMainWindow):
             filter_menu.addAction(act)
             self._filter_actions[key] = act
 
-        invert_act = QAction("&Invert Page", self)
+        invert_act = QAction(t("&Invert Page"), self)
         invert_act.setShortcut("Ctrl+Shift+I")
-        invert_act.setToolTip("Dark-paper invert of page pixels (Ctrl+Shift+I)")
+        invert_act.setToolTip(t("Dark-paper invert of page pixels (Ctrl+Shift+I)"))
         invert_act.triggered.connect(lambda: self.toggle_page_filter("invert"))
         view_menu.addAction(invert_act)
 
         filter_menu.addSeparator()
-        bright_up = QAction("Brighter page", self)
+        bright_up = QAction(t("Brighter page"), self)
         bright_up.setShortcut("Ctrl+Shift+Up")
         bright_up.triggered.connect(lambda: self.adjust_brightness(0.05))
         filter_menu.addAction(bright_up)
-        bright_dn = QAction("Dimmer page", self)
+        bright_dn = QAction(t("Dimmer page"), self)
         bright_dn.setShortcut("Ctrl+Shift+Down")
         bright_dn.triggered.connect(lambda: self.adjust_brightness(-0.05))
         filter_menu.addAction(bright_dn)
-        contrast_up = QAction("More contrast", self)
+        contrast_up = QAction(t("More contrast"), self)
         contrast_up.setShortcut("Ctrl+Alt+Up")
         contrast_up.triggered.connect(lambda: self.adjust_contrast(0.05))
         filter_menu.addAction(contrast_up)
-        contrast_dn = QAction("Less contrast", self)
+        contrast_dn = QAction(t("Less contrast"), self)
         contrast_dn.setShortcut("Ctrl+Alt+Down")
         contrast_dn.triggered.connect(lambda: self.adjust_contrast(-0.05))
         filter_menu.addAction(contrast_dn)
-        reset_app = QAction("Reset page appearance", self)
+        reset_app = QAction(t("Reset page appearance"), self)
         reset_app.setShortcut("Ctrl+Shift+0")
         reset_app.triggered.connect(self.reset_page_appearance)
         filter_menu.addAction(reset_app)
 
         view_menu.addSeparator()
         # Chrome UI scale for readability
-        scale_menu = view_menu.addMenu("UI &Scale")
+        scale_menu = view_menu.addMenu(t("UI &Scale"))
         for label, scale in (
-            ("Compact (90%)", 0.9),
-            ("Default (100%)", 1.0),
-            ("Comfortable (115%)", 1.15),
-            ("Large (130%)", 1.3),
-            ("Extra large (150%)", 1.5),
+            (t("Compact (90%)"), 0.9),
+            (t("Default (100%)"), 1.0),
+            (t("Comfortable (115%)"), 1.15),
+            (t("Large (130%)"), 1.3),
+            (t("Extra large (150%)"), 1.5),
         ):
             act = QAction(label, self)
             act.triggered.connect(lambda checked=False, s=scale: self.set_ui_scale(s))
             scale_menu.addAction(act)
 
-        go_menu = menubar.addMenu("&Go")
-        prev_act = QAction("&Previous Page", self)
+        go_menu = menubar.addMenu(t("&Go"))
+        prev_act = QAction(t("&Previous Page"), self)
         prev_act.setShortcut(QKeySequence.MoveToPreviousPage)
         prev_act.triggered.connect(self.prev_page)
         go_menu.addAction(prev_act)
 
-        next_act = QAction("&Next Page", self)
+        next_act = QAction(t("&Next Page"), self)
         next_act.setShortcut(QKeySequence.MoveToNextPage)
         next_act.triggered.connect(self.next_page)
         go_menu.addAction(next_act)
 
-        first_act = QAction("&First Page", self)
+        first_act = QAction(t("&First Page"), self)
         first_act.setShortcut("Home")
         first_act.triggered.connect(lambda: self._goto_page(0))
         go_menu.addAction(first_act)
 
-        last_act = QAction("&Last Page", self)
+        last_act = QAction(t("&Last Page"), self)
         last_act.setShortcut("End")
         last_act.triggered.connect(
             lambda: self._goto_page(max(0, self.engine.page_count - 1))
         )
         go_menu.addAction(last_act)
 
-        goto_act = QAction("&Go to Page…", self)
+        goto_act = QAction(t("&Go to Page…"), self)
         goto_act.setShortcut("Ctrl+G")
-        goto_act.setToolTip("Jump to a page number (Ctrl+G)")
+        goto_act.setToolTip(t("Jump to a page number (Ctrl+G)"))
         goto_act.triggered.connect(self._goto_page_dialog)
         go_menu.addAction(goto_act)
 
-        help_menu = menubar.addMenu("&Help")
-        about_act = QAction("&About", self)
+        help_menu = menubar.addMenu(t("&Help"))
+        about_act = QAction(t("&About"), self)
         about_act.triggered.connect(self.show_about)
         help_menu.addAction(about_act)
 
-        update_act = QAction("Check for &Updates…", self)
+        update_act = QAction(t("Check for &Updates…"), self)
         update_act.triggered.connect(self.check_for_updates)
         help_menu.addAction(update_act)
 
-        shortcuts_act = QAction("&Keyboard Shortcuts", self)
+        shortcuts_act = QAction(t("&Keyboard Shortcuts"), self)
         shortcuts_act.triggered.connect(self.show_shortcuts)
         help_menu.addAction(shortcuts_act)
 
+        settings_menu = menubar.addMenu(t("&Settings"))
+        lang_menu = settings_menu.addMenu(t("&Language"))
+        self._lang_actions = {}
+        active = current_language()
+        for code, native in LANGUAGES:
+            act = QAction(native, self)
+            act.setCheckable(True)
+            act.setChecked(code == active)
+            act.triggered.connect(lambda checked=False, c=code: self._choose_language(c))
+            lang_menu.addAction(act)
+            self._lang_actions[code] = act
+
+
     def _build_toolbar(self) -> None:
-        self.toolbar = tb = QToolBar("Main")
+        self.toolbar = tb = QToolBar(t("Main"))
         tb.setMovable(False)
         self.addToolBar(tb)
 
-        open_btn = QAction("Open", self)
-        open_btn.setToolTip("Open document (Ctrl+O)")
+        open_btn = QAction(t("Open"), self)
+        open_btn.setToolTip(t("Open document (Ctrl+O)"))
         open_btn.triggered.connect(lambda: self.open_document())
         tb.addAction(open_btn)
 
-        save_btn = QAction("Save", self)
-        save_btn.setToolTip("Save (Ctrl+S)")
+        save_btn = QAction(t("Save"), self)
+        save_btn.setToolTip(t("Save (Ctrl+S)"))
         save_btn.triggered.connect(self.save_document)
         tb.addAction(save_btn)
         tb.addSeparator()
 
-        prev_btn = QAction("Prev", self)
-        prev_btn.setToolTip("Previous page (← / PgUp)")
+        prev_btn = QAction(t("Prev"), self)
+        prev_btn.setToolTip(t("Previous page (← / PgUp)"))
         prev_btn.triggered.connect(self.prev_page)
         tb.addAction(prev_btn)
 
         self.page_spin = QSpinBox()
         self.page_spin.setMinimum(1)
         self.page_spin.setMaximum(1)
-        self.page_spin.setToolTip("Current page")
+        self.page_spin.setToolTip(t("Current page"))
         self.page_spin.valueChanged.connect(self._on_page_spin)
         tb.addWidget(self.page_spin)
 
-        next_btn = QAction("Next", self)
-        next_btn.setToolTip("Next page (→ / PgDown)")
+        next_btn = QAction(t("Next"), self)
+        next_btn.setToolTip(t("Next page (→ / PgDown)"))
         next_btn.triggered.connect(self.next_page)
         tb.addAction(next_btn)
         tb.addSeparator()
 
-        zin = QAction("Zoom+", self)
-        zin.setToolTip("Zoom in 15% (Ctrl++) — hold Ctrl+Wheel for 1%")
+        zin = QAction(t("Zoom+"), self)
+        zin.setToolTip(t("Zoom in 15% (Ctrl++) — hold Ctrl+Wheel for 1%"))
         zin.triggered.connect(lambda: self.adjust_zoom(PDFEngine.ZOOM_COARSE))
         tb.addAction(zin)
 
@@ -582,49 +631,106 @@ class RemedyPDFApp(QMainWindow):
         self.zoom_label.setAlignment(Qt.AlignCenter)
         tb.addWidget(self.zoom_label)
 
-        zout = QAction("Zoom-", self)
-        zout.setToolTip("Zoom out 15% (Ctrl+-) — hold Ctrl+Wheel for 1%")
+        zout = QAction(t("Zoom-"), self)
+        zout.setToolTip(t("Zoom out 15% (Ctrl+-) — hold Ctrl+Wheel for 1%"))
         zout.triggered.connect(lambda: self.adjust_zoom(-PDFEngine.ZOOM_COARSE))
         tb.addAction(zout)
 
-        reset_zoom_btn = QAction("Reset", self)
-        reset_zoom_btn.setToolTip("Reset zoom to default (Ctrl+0)")
+        reset_zoom_btn = QAction(t("Reset"), self)
+        reset_zoom_btn.setToolTip(t("Reset zoom to default (Ctrl+0)"))
         reset_zoom_btn.triggered.connect(self.reset_zoom)
         tb.addAction(reset_zoom_btn)
 
-        fit_w_btn = QAction("Fit W", self)
-        fit_w_btn.setToolTip("Fit width (Ctrl+1)")
+        fit_w_btn = QAction(t("Fit W"), self)
+        fit_w_btn.setToolTip(t("Fit width (Ctrl+1)"))
         fit_w_btn.triggered.connect(lambda: self.fit_view("width"))
         tb.addAction(fit_w_btn)
 
-        fit_p_btn = QAction("Fit", self)
-        fit_p_btn.setToolTip("Fit page (Ctrl+2)")
+        fit_p_btn = QAction(t("Fit"), self)
+        fit_p_btn.setToolTip(t("Fit page (Ctrl+2)"))
         fit_p_btn.triggered.connect(lambda: self.fit_view("page"))
         tb.addAction(fit_p_btn)
         tb.addSeparator()
 
-        self.book_tb = QAction("Book", self)
+        self.book_tb = QAction(t("Book"), self)
         self.book_tb.setCheckable(True)
-        self.book_tb.setToolTip("Book mode — both sides / two-page spread (Ctrl+B)")
+        self.book_tb.setToolTip(t("Book mode — both sides / two-page spread (Ctrl+B)"))
         self.book_tb.triggered.connect(self.toggle_book_mode)
         tb.addAction(self.book_tb)
 
-        theme_btn = QAction("Theme", self)
-        theme_btn.setToolTip("Cycle visibility theme (Ctrl+Shift+T)")
+        theme_btn = QAction(t("Theme"), self)
+        theme_btn.setToolTip(t("Cycle visibility theme (Ctrl+Shift+T)"))
         theme_btn.triggered.connect(self._toggle_theme)
         tb.addAction(theme_btn)
 
-        find_btn = QAction("Find", self)
-        find_btn.setToolTip("Find (Ctrl+F)")
+        find_btn = QAction(t("Find"), self)
+        find_btn.setToolTip(t("Find (Ctrl+F)"))
         find_btn.triggered.connect(self._show_find)
         tb.addAction(find_btn)
 
         tb.addSeparator()
-        self.reader_act = QAction("Reader", self)
+        self.reader_act = QAction(t("Reader"), self)
         self.reader_act.setCheckable(True)
-        self.reader_act.setToolTip("Reader mode — hide chrome, tap edges to flip pages")
+        self.reader_act.setToolTip(t("Reader mode — hide chrome, tap edges to flip pages"))
         self.reader_act.triggered.connect(self._toggle_reader_mode)
         tb.addAction(self.reader_act)
+
+
+    def _choose_language(self, code: str) -> None:
+        """Persist the language and rebuild chrome immediately."""
+        set_language(code, persist=True)
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        """Rebuild menus and toolbar. Shortcuts are not registered again."""
+        app = QApplication.instance()
+        apply_qt_locale()
+        if app is not None:
+            apply_ui_font(app, self._ui_scale)
+        book_on = bool(self.engine.book_mode)
+        full_on = self.isFullScreen()
+        reader_on = bool(getattr(self, "_reader_mode", False))
+        theme = self._theme
+        filt = self.engine.page_filter
+        self.menuBar().clear()
+        toolbar = getattr(self, "toolbar", None)
+        if toolbar is not None:
+            self.removeToolBar(toolbar)
+        self._build_menus()
+        self._build_toolbar()
+        self.book_act.blockSignals(True)
+        self.book_act.setChecked(book_on)
+        self.book_act.blockSignals(False)
+        self.book_tb.blockSignals(True)
+        self.book_tb.setChecked(book_on)
+        self.book_tb.blockSignals(False)
+        if getattr(self, "fullscreen_act", None) is not None:
+            self.fullscreen_act.blockSignals(True)
+            self.fullscreen_act.setChecked(full_on)
+            self.fullscreen_act.blockSignals(False)
+        if getattr(self, "reader_act", None) is not None:
+            self.reader_act.blockSignals(True)
+            self.reader_act.setChecked(reader_on)
+            self.reader_act.blockSignals(False)
+        for key, act in getattr(self, "_theme_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(key == theme)
+            act.blockSignals(False)
+        for key, act in getattr(self, "_filter_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(key == filt)
+            act.blockSignals(False)
+        self.search_bar.retranslate()
+        self.navigator.retranslate()
+        self.canvas.retranslate_placeholder()
+        if self._touch or self._mobile:
+            self.canvas.setToolTip(t("Hold on the page to add text"))
+        else:
+            self.canvas.setToolTip(t("Double-click the page to add text"))
+        self._sync_page_controls()
+        self._update_status()
+        if reader_on:
+            self._set_reader_mode(True)
 
     def _build_shortcuts(self) -> None:
         # Arrow / page navigation
@@ -839,24 +945,29 @@ class RemedyPDFApp(QMainWindow):
         if not path:
             path, _ = QFileDialog.getOpenFileName(
                 self,
-                "Open Document",
+                t("Open Document"),
                 str(Path.home()),
-                OPEN_FILTER,
+                localized_open_filter(),
             )
         if not path:
             return
         # Guard: don't silently discard unsaved edits when opening another file
         if self._dirty and self.engine.is_open and not self._is_headless():
-            reply = QMessageBox.question(
-                self,
-                APP_NAME,
-                "You have unsaved changes.\n\nSave before opening another document?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save,
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(APP_NAME)
+            box.setText(
+                t("You have unsaved changes.\n\nSave before opening another document?")
             )
-            if reply == QMessageBox.Cancel:
+            save_btn = box.addButton(t("Save"), QMessageBox.AcceptRole)
+            box.addButton(t("Discard"), QMessageBox.DestructiveRole)
+            cancel_btn = box.addButton(t("Cancel"), QMessageBox.RejectRole)
+            box.setDefaultButton(save_btn)
+            box.exec_()
+            clicked = box.clickedButton()
+            if clicked is cancel_btn:
                 return
-            if reply == QMessageBox.Save:
+            if clicked is save_btn:
                 self.save_document()
                 if self._dirty:
                     return  # save cancelled/failed
@@ -880,7 +991,7 @@ class RemedyPDFApp(QMainWindow):
             return True
         err = getattr(self.engine, "last_error", "")
         if err == "password" and not self._is_headless():
-            prompt = "This PDF is password-protected.\n\nPassword:"
+            prompt = t("This PDF is password-protected.\n\nPassword:")
             for _attempt in range(3):
                 pw, ok = QInputDialog.getText(
                     self, APP_NAME, prompt, QLineEdit.Password
@@ -891,14 +1002,17 @@ class RemedyPDFApp(QMainWindow):
                     return True
                 if getattr(self.engine, "last_error", "") != "password":
                     break
-                prompt = "Incorrect password — try again.\n\nPassword:"
+                prompt = t("Incorrect password — try again.\n\nPassword:")
             err = getattr(self.engine, "last_error", "")
         if err == "password":
-            msg = f"Could not open (password required):\n{path}"
+            msg = t("Could not open (password required):\n{path}", path=path)
         elif err == "empty":
-            msg = f"Could not open (document has no pages):\n{path}"
+            msg = t("Could not open (document has no pages):\n{path}", path=path)
         else:
-            msg = f"Could not open (file is damaged or not a supported format):\n{path}"
+            msg = t(
+                "Could not open (file is damaged or not a supported format):\n{path}",
+                path=path,
+            )
         QMessageBox.critical(self, APP_NAME, msg)
         return False
 
@@ -908,7 +1022,7 @@ class RemedyPDFApp(QMainWindow):
 
     def save_document(self) -> None:
         if not self.engine.is_open:
-            QMessageBox.information(self, APP_NAME, "No document open.")
+            QMessageBox.information(self, APP_NAME, t("No document open."))
             return
         dest = self.current_path
         if not dest or not str(dest).lower().endswith(".pdf"):
@@ -920,26 +1034,26 @@ class RemedyPDFApp(QMainWindow):
             dest = self.engine.path or dest
             self.current_path = dest
             self._dirty = False
-            self.statusBar().showMessage(f"Saved {dest}", 3000)
+            self.statusBar().showMessage(t("Saved {path}", path=dest), 3000)
             self._update_status()
         else:
-            QMessageBox.critical(self, APP_NAME, "Save failed.")
+            QMessageBox.critical(self, APP_NAME, t("Save failed."))
 
     def save_pdf(self) -> None:
         self.save_document()
 
     def save_document_as(self) -> None:
         if not self.engine.is_open:
-            QMessageBox.information(self, APP_NAME, "No document open.")
+            QMessageBox.information(self, APP_NAME, t("No document open."))
             return
         default = self.current_path or str(Path.home() / "document.pdf")
         if not default.lower().endswith(".pdf"):
             default = str(Path(default).with_suffix(".pdf"))
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save As PDF",
+            t("Save As PDF"),
             default,
-            SAVE_FILTER,
+            localized_save_filter(),
         )
         if not path:
             return
@@ -948,10 +1062,10 @@ class RemedyPDFApp(QMainWindow):
             path = self.engine.path or path
             self.current_path = path
             self._dirty = False
-            self.statusBar().showMessage(f"Saved {path}", 3000)
+            self.statusBar().showMessage(t("Saved {path}", path=path), 3000)
             self._update_status()
         else:
-            QMessageBox.critical(self, APP_NAME, "Save failed.")
+            QMessageBox.critical(self, APP_NAME, t("Save failed."))
 
     def save_pdf_as(self) -> None:
         self.save_document_as()
@@ -960,9 +1074,9 @@ class RemedyPDFApp(QMainWindow):
 
     def add_text(self, x: Optional[float] = None, y: Optional[float] = None) -> None:
         if not self.engine.is_open:
-            QMessageBox.information(self, APP_NAME, "Open a document first.")
+            QMessageBox.information(self, APP_NAME, t("Open a document first."))
             return
-        text, ok = QInputDialog.getText(self, APP_NAME, "Text to insert:")
+        text, ok = QInputDialog.getText(self, APP_NAME, t("Text to insert:"))
         if not ok or not text:
             return
         kwargs = {}
@@ -976,34 +1090,34 @@ class RemedyPDFApp(QMainWindow):
         if self.engine.add_text(text, page=page, **kwargs):
             self._dirty = True
             self.render_current()
-            self.statusBar().showMessage("Text added (remember to Save)", 3000)
+            self.statusBar().showMessage(t("Text added (remember to Save)"), 3000)
             self._update_status()
         else:
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                "Could not add text (format may be read-only — try Save As PDF).",
+                t("Could not add text (format may be read-only — try Save As PDF)."),
             )
 
     def add_image(self) -> None:
         if not self.engine.is_open:
-            QMessageBox.information(self, APP_NAME, "Open a document first.")
+            QMessageBox.information(self, APP_NAME, t("Open a document first."))
             return
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Insert Image",
+            t("Insert Image"),
             str(Path.home()),
-            "Images (*.png *.jpg *.jpeg *.bmp *.webp)",
+            localized_image_filter(),
         )
         if not path:
             return
         if self.engine.add_image(path):
             self._dirty = True
             self.render_current()
-            self.statusBar().showMessage("Image added (remember to Save)", 3000)
+            self.statusBar().showMessage(t("Image added (remember to Save)"), 3000)
             self._update_status()
         else:
-            QMessageBox.warning(self, APP_NAME, "Could not add image.")
+            QMessageBox.warning(self, APP_NAME, t("Could not add image."))
 
     def _on_canvas_edit(self, pdf_x: float, pdf_y: float) -> None:
         """Edit gesture: double-click (PC) or long-press/hold (mobile)."""
@@ -1019,21 +1133,27 @@ class RemedyPDFApp(QMainWindow):
             if mapped is None:
                 return
             page, x, y = mapped
-            hint = "hold" if (self._mobile or self._touch) else "double-click"
+            hint = t("hold") if (self._mobile or self._touch) else t("double-click")
             text, ok = QInputDialog.getText(
                 self,
                 APP_NAME,
-                f"Add text at ({x:.0f}, {y:.0f}) on page {page + 1}\n({hint} to edit):",
+                t(
+                    "Add text at ({x}, {y}) on page {page}\n({hint} to edit):",
+                    x=format_int(int(round(x))),
+                    y=format_int(int(round(y))),
+                    page=format_int(page + 1),
+                    hint=hint,
+                ),
             )
             if not ok or not text:
                 return
             if self.engine.add_text(text, page=page, x=x, y=y):
                 self._dirty = True
                 self.render_current()
-                self.statusBar().showMessage("Text added (remember to Save)", 3000)
+                self.statusBar().showMessage(t("Text added (remember to Save)"), 3000)
                 self._update_status()
             else:
-                QMessageBox.warning(self, APP_NAME, "Could not add text at that position.")
+                QMessageBox.warning(self, APP_NAME, t("Could not add text at that position."))
         finally:
             self._edit_dialog_open = False
 
@@ -1121,7 +1241,7 @@ class RemedyPDFApp(QMainWindow):
         self._sync_page_controls()
         self.render_current()
         self._update_status()
-        self.statusBar().showMessage("Document closed", 2500)
+        self.statusBar().showMessage(t("Document closed"), 2500)
 
     def _goto_page_dialog(self) -> None:
         """Prompt for a page number (Ctrl+G)."""
@@ -1131,8 +1251,8 @@ class RemedyPDFApp(QMainWindow):
         current = min(total, self.engine.current_page + 1)
         num, ok = QInputDialog.getInt(
             self,
-            "Go to Page",
-            f"Page (1–{total}):",
+            t("Go to Page"),
+            t("Page ({first}–{total}):", first=format_int(1), total=format_int(total)),
             current,
             1,
             total,
@@ -1213,7 +1333,7 @@ class RemedyPDFApp(QMainWindow):
         self.render_current()
         self._update_status()
         zpct = int(round(self.engine.zoom * 100))
-        self.statusBar().showMessage(f"Zoom reset to {zpct}%", 2000)
+        self.statusBar().showMessage(t("Zoom reset to {pct}", pct=format_percent(zpct)), 2000)
 
     def toggle_book_mode(self, checked: Optional[bool] = None) -> None:
         if checked is None:
@@ -1238,11 +1358,15 @@ class RemedyPDFApp(QMainWindow):
             spread = self.engine.spread_pages()
             if len(spread) == 2:
                 self.statusBar().showMessage(
-                    f"Book mode — pages {spread[0] + 1} & {spread[1] + 1} (both sides)",
+                    t(
+                        "Book mode — pages {left} & {right} (both sides)",
+                        left=format_int(spread[0] + 1),
+                        right=format_int(spread[1] + 1),
+                    ),
                     3000,
                 )
             else:
-                self.statusBar().showMessage("Book mode — both sides when available", 2500)
+                self.statusBar().showMessage(t("Book mode — both sides when available"), 2500)
 
     def _fit_book_spread_in_view(self) -> None:
         """Shrink zoom so the full left+right spread fits the scroll viewport."""
@@ -1266,11 +1390,17 @@ class RemedyPDFApp(QMainWindow):
         self.render_current()
         self._update_status()
         if announce:
-            label = {"width": "width", "height": "height", "page": "page"}.get(
-                (mode or "width").lower(), mode
-            )
+            labels = {
+                "width": t("width"),
+                "height": t("height"),
+                "page": t("page"),
+            }
+            label = labels.get((mode or "width").lower(), mode)
             zpct = int(round(self.engine.zoom * 100))
-            self.statusBar().showMessage(f"Fit {label} — {zpct}%", 2000)
+            self.statusBar().showMessage(
+                t("Fit {mode} — {pct}", mode=label, pct=format_percent(zpct)),
+                2000,
+            )
 
     def toggle_fullscreen(self, checked: Optional[bool] = None) -> None:
         """Toggle full-screen reading mode (F11)."""
@@ -1287,7 +1417,7 @@ class RemedyPDFApp(QMainWindow):
             self.fullscreen_act.setChecked(self.isFullScreen())
             self.fullscreen_act.blockSignals(False)
         self.statusBar().showMessage(
-            "Full screen (Esc or F11 to exit)" if self.isFullScreen() else "Windowed",
+            t("Full screen (Esc or F11 to exit)") if self.isFullScreen() else t("Windowed"),
             2000,
         )
 
@@ -1322,7 +1452,7 @@ class RemedyPDFApp(QMainWindow):
             self.showFullScreen()
         else:
             self.showNormal()
-            self.statusBar().showMessage("Reader mode off", 1500)
+            self.statusBar().showMessage(t("Reader mode off"), 1500)
         if getattr(self, "reader_act", None) is not None:
             self.reader_act.blockSignals(True)
             self.reader_act.setChecked(self._reader_mode)
@@ -1356,7 +1486,7 @@ class RemedyPDFApp(QMainWindow):
             except Exception:  # noqa: BLE001
                 pass
         self.statusBar().showMessage(
-            f"Theme: {theme_label(self._theme)} (text + page colors)",
+            t("Theme: {name} (text + page colors)", name=theme_label(self._theme)),
             2000,
         )
 
@@ -1388,7 +1518,7 @@ class RemedyPDFApp(QMainWindow):
         if self.engine.is_open:
             self.render_current()
         self._update_status()
-        self.statusBar().showMessage(f"Page: {page_filter_label(key)}", 2000)
+        self.statusBar().showMessage(t("Page: {name}", name=page_filter_label(key)), 2000)
 
     def toggle_page_filter(self, name: str) -> None:
         """Toggle a named filter on/off (e.g. invert)."""
@@ -1401,7 +1531,7 @@ class RemedyPDFApp(QMainWindow):
         if self.engine.is_open:
             self.render_current()
         pct = int(round(val * 100))
-        self.statusBar().showMessage(f"Brightness {pct}%", 1500)
+        self.statusBar().showMessage(t("Brightness {pct}", pct=format_percent(pct)), 1500)
         self._update_status()
 
     def adjust_contrast(self, delta: float) -> None:
@@ -1409,7 +1539,7 @@ class RemedyPDFApp(QMainWindow):
         if self.engine.is_open:
             self.render_current()
         pct = int(round(val * 100))
-        self.statusBar().showMessage(f"Contrast {pct}%", 1500)
+        self.statusBar().showMessage(t("Contrast {pct}", pct=format_percent(pct)), 1500)
         self._update_status()
 
     def reset_page_appearance(self) -> None:
@@ -1420,7 +1550,7 @@ class RemedyPDFApp(QMainWindow):
             act.blockSignals(False)
         if self.engine.is_open:
             self.render_current()
-        self.statusBar().showMessage("Page appearance reset", 2000)
+        self.statusBar().showMessage(t("Page appearance reset"), 2000)
         self._update_status()
 
     def set_ui_scale(self, scale: float) -> None:
@@ -1429,21 +1559,11 @@ class RemedyPDFApp(QMainWindow):
         app = QApplication.instance()
         if app is None:
             return
-        # Re-apply theme then bump base font
+        # Re-apply theme, then restore CJK-capable families at this scale.
         apply_theme(app, self._theme, mobile=self._mobile or self._touch)
-        try:
-            from PyQt5.QtGui import QFont
-
-            font = app.font()
-            base = 13.0 * self._ui_scale
-            if self._mobile or self._touch:
-                base = max(base, 14.0 * self._ui_scale)
-            font.setPointSizeF(base)
-            app.setFont(font)
-        except Exception:  # noqa: BLE001
-            pass
+        apply_ui_font(app, self._ui_scale)
         pct = int(round(self._ui_scale * 100))
-        self.statusBar().showMessage(f"UI scale {pct}%", 2000)
+        self.statusBar().showMessage(t("UI scale {pct}", pct=format_percent(pct)), 2000)
 
     # ----- search -----
 
@@ -1455,7 +1575,7 @@ class RemedyPDFApp(QMainWindow):
         seed index at 0 here and skip the extra advance once (see _search_next)."""
         self._search_hits = self.engine.search(query)
         n = len(self._search_hits)
-        self.search_bar.set_status(f"{n} match" + ("" if n == 1 else "es"))
+        self.search_bar.set_status(tn("{n} match", "{n} matches", n))
         if n == 0:
             self._search_index = -1
             self._search_fresh = False
@@ -1472,7 +1592,13 @@ class RemedyPDFApp(QMainWindow):
         if getattr(self, "_search_fresh", False):
             self._search_fresh = False
             n = len(self._search_hits)
-            self.search_bar.set_status(f"{self._search_index + 1}/{n}")
+            self.search_bar.set_status(
+                t(
+                    "{i}/{n}",
+                    i=format_int(self._search_index + 1),
+                    n=format_int(n),
+                )
+            )
             return
         self._search_index = (self._search_index + 1) % len(self._search_hits)
         self._jump_to_hit()
@@ -1488,7 +1614,13 @@ class RemedyPDFApp(QMainWindow):
         page, _rect = self._search_hits[self._search_index]
         self._goto_page(page)
         n = len(self._search_hits)
-        self.search_bar.set_status(f"{self._search_index + 1}/{n}")
+        self.search_bar.set_status(
+            t(
+                "{i}/{n}",
+                i=format_int(self._search_index + 1),
+                n=format_int(n),
+            )
+        )
 
     def _on_search_closed(self) -> None:
         self.canvas.setFocus(Qt.OtherFocusReason)
@@ -1498,10 +1630,12 @@ class RemedyPDFApp(QMainWindow):
     def render_current(self, *, keep_view: bool = False) -> None:
         if not self.engine.is_open:
             if self._mobile or self._touch:
-                tip = "Hold on a page to add text"
+                tip = t("Hold on a page to add text")
             else:
-                tip = "Double-click a page to add text"
-            self.canvas.clear_page(f"Open a PDF, EPUB, DOCX or image to begin\n\n{tip}")
+                tip = t("Double-click a page to add text")
+            self.canvas.clear_page(
+                t("Open a PDF, EPUB, DOCX or image to begin\n\n{tip}", tip=tip)
+            )
             return
         # Fast path: RGB24 → QImage (no PNG encode/decode on every paint)
         rgb = None
@@ -1523,11 +1657,11 @@ class RemedyPDFApp(QMainWindow):
         if pix is None or pix.isNull():
             data = self.engine.render_view()
             if not data:
-                self.canvas.clear_page("Unable to render page")
+                self.canvas.clear_page(t("Unable to render page"))
                 return
             image = QImage.fromData(QByteArray(data), "PNG")
             if image.isNull():
-                self.canvas.clear_page("Invalid page image")
+                self.canvas.clear_page(t("Invalid page image"))
                 return
             pix = QPixmap.fromImage(image)
         # Engine caps render scale (MAX_RENDER_ZOOM) — rescale to the exact
@@ -1595,34 +1729,55 @@ class RemedyPDFApp(QMainWindow):
 
     def _update_status(self) -> None:
         zpct = int(round(self.engine.zoom * 100))
-        self.zoom_label.setText(f" {zpct}% ")
+        pct = format_percent(zpct)
+        self.zoom_label.setText(f" {pct} ")
         if not self.engine.is_open:
-            self.statusBar().showMessage("Ready — Open PDF, EPUB, XPS, CBZ…")
+            self.statusBar().showMessage(t("Ready — Open PDF, EPUB, XPS, CBZ…"))
             self.setWindowTitle(f"{APP_NAME} {VERSION}")
             return
         name = Path(self.current_path or "document").name
         page = self.engine.current_page + 1
         total = self.engine.page_count
         fmt = (self.engine.format or "pdf").upper()
-        mode = "Book" if self.engine.book_mode else "Single"
+        mode = t("Book") if self.engine.book_mode else t("Single")
         dirty = " •" if self._dirty else ""
         spread = self.engine.spread_pages()
         if len(spread) == 2:
-            page_label = f"Pages {spread[0] + 1}–{spread[1] + 1}/{total}"
+            page_label = t(
+                "Pages {left}–{right}/{total}",
+                left=format_int(spread[0] + 1),
+                right=format_int(spread[1] + 1),
+                total=format_int(total),
+            )
         else:
-            page_label = f"Page {page}/{total}"
+            page_label = t(
+                "Page {page}/{total}",
+                page=format_int(page),
+                total=format_int(total),
+            )
         filt = self.engine.page_filter
-        filt_bit = "" if filt == "none" else f"  |  {page_filter_label(filt)}"
+        filt_bit = "" if filt == "none" else t("  |  {text}", text=page_filter_label(filt))
         b = self.engine.brightness
         c = self.engine.contrast
         bc_bit = ""
         if abs(b - 1.0) > 0.01 or abs(c - 1.0) > 0.01:
-            bc_bit = f"  |  B{int(round(b * 100))}/C{int(round(c * 100))}"
-        theme_bit = f"  |  {theme_label(self._theme)}"
+            bc_bit = t(
+                "  |  B{b}/C{c}",
+                b=format_int(int(round(b * 100))),
+                c=format_int(int(round(c * 100))),
+            )
+        theme_bit = t("  |  {text}", text=theme_label(self._theme))
         self.setWindowTitle(f"{name}{dirty} — {APP_NAME}")
         self.statusBar().showMessage(
-            f"{name}{dirty}  |  {fmt}  |  {page_label}  |  Zoom {zpct}%  |  {mode}"
-            f"{filt_bit}{bc_bit}{theme_bit}"
+            t(
+                "{name}  |  {fmt}  |  {pages}  |  Zoom {pct}  |  {mode}{extra}",
+                name=f"{name}{dirty}",
+                fmt=fmt,
+                pages=page_label,
+                pct=pct,
+                mode=mode,
+                extra=f"{filt_bit}{bc_bit}{theme_bit}",
+            )
         )
 
     def show_about(self) -> None:
@@ -1650,12 +1805,12 @@ class RemedyPDFApp(QMainWindow):
                 QMessageBox.information(self, APP_NAME, msg)
             return
         box = QMessageBox(self)
-        box.setWindowTitle(f"{APP_NAME} update")
+        box.setWindowTitle(t("{app} update", app=APP_NAME))
         box.setIcon(QMessageBox.Information)
         box.setText(msg)
-        install_btn = box.addButton("Download & install", QMessageBox.AcceptRole)
-        open_btn = box.addButton("Open release", QMessageBox.ActionRole)
-        box.addButton(QMessageBox.Close)
+        install_btn = box.addButton(t("Download & install"), QMessageBox.AcceptRole)
+        open_btn = box.addButton(t("Open release"), QMessageBox.ActionRole)
+        box.addButton(t("Close"), QMessageBox.RejectRole)
         box.exec_()
         clicked = box.clickedButton()
         if clicked is install_btn:
@@ -1674,7 +1829,7 @@ class RemedyPDFApp(QMainWindow):
                 open_url(url)
 
     def _on_update_check_failed(self, err: str) -> None:
-        self.statusBar().showMessage(f"Update check failed: {err}", 4000)
+        self.statusBar().showMessage(t("Update check failed: {err}", err=err), 4000)
 
     def _auto_check_for_updates(self) -> None:
         """Startup check: silent unless an update is actually available."""
@@ -1699,14 +1854,19 @@ class RemedyPDFApp(QMainWindow):
         if not find_installer_url(data):
             return  # nothing we can auto-install (e.g. portable-only release)
         box = QMessageBox(self)
-        box.setWindowTitle(f"{APP_NAME} update available")
+        box.setWindowTitle(t("{app} update available", app=APP_NAME))
         box.setIcon(QMessageBox.Information)
         box.setText(
-            f"RemedyPDF v{tag} is available (you have v{VERSION}).\n\n"
-            "Download and install it now?"
+            t(
+                "{app} v{tag} is available (you have v{version}).\n\n"
+                "Download and install it now?",
+                app=APP_NAME,
+                tag=tag,
+                version=VERSION,
+            )
         )
-        install_btn = box.addButton("Download & install", QMessageBox.AcceptRole)
-        later_btn = box.addButton("Later", QMessageBox.RejectRole)
+        install_btn = box.addButton(t("Download & install"), QMessageBox.AcceptRole)
+        later_btn = box.addButton(t("Later"), QMessageBox.RejectRole)
         box.exec_()
         if box.clickedButton() is install_btn:
             self._download_and_install(data)
@@ -1716,12 +1876,14 @@ class RemedyPDFApp(QMainWindow):
         if getattr(self, "_install_worker", None) is not None and self._install_worker.isRunning():
             return
         self._pending_update_url = str(info.get("url") or "")
-        self._progress = QProgressDialog("Downloading update…", "Cancel", 0, 100, self)
-        self._progress.setWindowTitle(f"{APP_NAME} update")
+        self._progress = QProgressDialog(
+            t("Downloading update…"), t("Cancel"), 0, 100, self
+        )
+        self._progress.setWindowTitle(t("{app} update", app=APP_NAME))
         self._progress.setMinimumDuration(300)
         self._progress.setAutoClose(False)
         self._progress.setAutoReset(False)
-        self._progress.setCancelButtonText("Cancel")
+        self._progress.setCancelButtonText(t("Cancel"))
         # Keep dialog open until we finish/fail/cancel — user Cancel must
         # abort the worker, not only dismiss the UI.
         self._progress.setCanceledOnClose(True)
@@ -1744,7 +1906,7 @@ class RemedyPDFApp(QMainWindow):
             worker.request_cancel()
             prog = getattr(self, "_progress", None)
             if prog is not None:
-                prog.setLabelText("Cancelling download…")
+                prog.setLabelText(t("Cancelling download…"))
                 prog.setCancelButton(None)  # prevent double-cancel thrash
 
     def _on_install_progress(self, done: int, total: int) -> None:
@@ -1769,7 +1931,10 @@ class RemedyPDFApp(QMainWindow):
         if getattr(self, "_progress", None) is not None:
             self._progress.close()
         self.statusBar().showMessage(
-            f"Update installer launched — {APP_NAME} will restart on the new version.",
+            t(
+                "Update installer launched — {app} will restart on the new version.",
+                app=APP_NAME,
+            ),
             6000,
         )
         # Give the detached installer a beat to initialize, then exit the
@@ -1795,7 +1960,7 @@ class RemedyPDFApp(QMainWindow):
         if getattr(self, "_progress", None) is not None:
             self._progress.close()
             self._progress = None
-        self.statusBar().showMessage("Update download cancelled.", 4000)
+        self.statusBar().showMessage(t("Update download cancelled."), 4000)
 
     def _on_install_failed(self, err: str) -> None:
         worker = getattr(self, "_install_worker", None)
@@ -1806,9 +1971,12 @@ class RemedyPDFApp(QMainWindow):
             self._progress.close()
         QMessageBox.warning(
             self,
-            f"{APP_NAME} update",
-            f"Could not install the update:\n{err}\n\n"
-            "Open the release page to download it manually.",
+            t("{app} update", app=APP_NAME),
+            t(
+                "Could not install the update:\n{err}\n\n"
+                "Open the release page to download it manually.",
+                err=err,
+            ),
         )
         fallback = str(getattr(self, "_pending_update_url", None) or "")
         if fallback.lower().endswith(".exe"):
@@ -1819,8 +1987,8 @@ class RemedyPDFApp(QMainWindow):
     def show_shortcuts(self) -> None:
         QMessageBox.information(
             self,
-            "Keyboard Shortcuts",
-            "<b>Navigation</b><br>"
+            t("Keyboard Shortcuts"),
+            t("<b>Navigation</b><br>"
             "← / → / PgUp / PgDown / Space — pages (spreads in Book mode)<br>"
             "Home / End — first / last<br>"
             "Alt+← / Alt+→ — previous / next page<br>"
@@ -1852,7 +2020,7 @@ class RemedyPDFApp(QMainWindow):
             "Double-click page (PC) — add text at point<br>"
             "Hold / long-press (mobile) — add text at point<br>"
             "Ctrl+T — add text<br>"
-            "Ctrl+O / Ctrl+S — open / save",
+            "Ctrl+O / Ctrl+S — open / save"),
         )
 
     def _is_headless(self) -> bool:
@@ -1883,17 +2051,20 @@ class RemedyPDFApp(QMainWindow):
             super().closeEvent(event)
             return
         if self._dirty and self.engine.is_open and not self._is_headless():
-            reply = QMessageBox.question(
-                self,
-                APP_NAME,
-                "You have unsaved changes.\n\nSave before quitting?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save,
-            )
-            if reply == QMessageBox.Cancel:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle(APP_NAME)
+            box.setText(t("You have unsaved changes.\n\nSave before quitting?"))
+            save_btn = box.addButton(t("Save"), QMessageBox.AcceptRole)
+            box.addButton(t("Discard"), QMessageBox.DestructiveRole)
+            cancel_btn = box.addButton(t("Cancel"), QMessageBox.RejectRole)
+            box.setDefaultButton(save_btn)
+            box.exec_()
+            clicked = box.clickedButton()
+            if clicked is cancel_btn:
                 event.ignore()
                 return
-            if reply == QMessageBox.Save:
+            if clicked is save_btn:
                 self.save_document()
                 if self._dirty:
                     # Save cancelled or failed — stay open
@@ -1909,6 +2080,8 @@ class RemedyPDFApp(QMainWindow):
 def create_app(argv: Optional[list] = None) -> tuple:
     """Create QApplication + main window (for tests / embedding)."""
     args = list(sys.argv if argv is None else argv)
+    init_i18n(args)
+    apply_qt_locale()
     qapp = QApplication.instance() or QApplication(args)
     qapp.setApplicationName(APP_NAME)
     qapp.setApplicationVersion(VERSION)
@@ -1922,6 +2095,7 @@ def create_app(argv: Optional[list] = None) -> tuple:
     except Exception:  # noqa: BLE001
         mobile = False
     apply_theme(qapp, DEFAULT_THEME, mobile=mobile)
+    apply_ui_font(qapp, 1.15 if mobile else 1.0)
     try:
         apply_mobile_attribute(qapp)
     except Exception:  # noqa: BLE001
@@ -1934,10 +2108,8 @@ def run(argv: Optional[list] = None) -> int:
     """Launch the GUI event loop."""
     qapp, window = create_app(argv)
     args = list(sys.argv if argv is None else argv)
-    # Open first supported path argument
-    for arg in args[1:]:
-        if arg.startswith("-"):
-            continue
+    # Open the first document path. --home / --lang and their values are not files.
+    for arg in iter_document_args(args):
         lower = arg.lower()
         if any(lower.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
             window.open_document(arg)
