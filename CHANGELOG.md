@@ -2,6 +2,27 @@
 
 All notable changes to RemedyPDF are documented in this file.
 
+## [1.5.0] — 2026-11-15
+
+Now available in Spanish, French, German, Portuguese (Brazil), Italian, Russian, Polish, Japanese, Korean and Chinese (Simplified). Apps use your system language by default; change it any time in Settings → Language.
+
+Hi I'm Ahmi, hope this helps!
+
+### Added
+
+- The window, menus, dialogs, and Android reader use those ten languages. English stays the fallback when a phrase has no translation.
+- The first launch follows the system language. Settings → Language switches the interface and stores the choice with the rest of the profile.
+- Numbers, dates, and text for Japanese, Korean, and Chinese follow the language you pick.
+
+### Install and update
+
+- Windows setup: `RemedyPDF-1.5.0-windows-setup.exe` (per-user install, Start Menu, and an optional desktop shortcut).
+- Portable: `RemedyPDF-1.5.0-windows.exe`, also attached as `RemedyPDF.exe`.
+- Android: `RemedyPDF-1.5.0-android-src.zip` is the mobile source package. This release does not include an APK.
+- Already installed: **Help → About → Check for updates**. Documents you open are not part of the app update.
+
+Same text: [docs/RELEASE-1.5.0.md](docs/RELEASE-1.5.0.md).
+
 ## [1.4.6] — 2026-11-14
 
 Opening and saving are more careful with passwords, damaged files, and locked files. Updates install only from this repository, and the Windows build stays on PyMuPDF 1.x so PyInstaller can package it.
