@@ -1,71 +1,115 @@
 # RemedyPDF
 
-A multi-format document viewer and editor for Windows, Linux and Android.
+**A fast, multi-format document viewer and editor for Windows, Linux and Android.**
 
-**Hi I'm Ahmi, hope this helps!**
+Read PDFs, e-books, comics, Office documents and images in one place, and add text and pictures to your PDFs.
 
-- Download: https://github.com/AhmiDarrow/RemedyPDF/releases/latest
-- Patreon: https://www.patreon.com/cw/AhmiDarrow
+[![Latest release](https://img.shields.io/github/v/release/AhmiDarrow/RemedyPDF)](https://github.com/AhmiDarrow/RemedyPDF/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Android-0078D6)](https://github.com/AhmiDarrow/RemedyPDF/releases/latest)
+[![Built with RemedyUI](https://img.shields.io/badge/built%20with-RemedyUI-8A2BE2)](#built-with-remedyui)
 
-Version 2 is a native app written in Rust on RemedyUI, with PDFium for PDFs. Everything in it
-uses a permissive licence.
+<p align="center">
+  <img src="resources/icon.png" alt="RemedyPDF icon" width="96" height="96" />
+</p>
 
-## What it does
+<p align="center">
+  <strong>Book mode · Reader mode · Nine themes · Signed auto-update</strong>
+</p>
 
-- **Opens** PDF, EPUB, XPS/OXPS, CBZ, CBR, FB2, HTML, TXT, SVG, DOCX, MOBI and images
-  (PNG, JPG, BMP, GIF, TIFF, WEBP). Anything it opens can be saved as a PDF.
-- **Edits** PDFs: add text and images. Password-protected PDFs stay protected when saved
-  (AES-256).
-- **Reads comfortably:** book mode (two pages side by side), reader mode, nine themes, page
-  filters, brightness and contrast, view rotation, fit modes, and zoom in 1% or 15% steps.
-- **Updates itself.** An update is installed only if it is signed with RemedyPDF's update key.
-  Help, "Install Updates Automatically" turns automatic installing off.
+<p align="center">
+  <strong>Built with <a href="#built-with-remedyui">RemedyUI</a></strong>: a native Rust app on every platform.
+</p>
 
-Help, "Keyboard Shortcuts" lists every shortcut.
+---
+
+## Why
+
+Most of us keep several programs around just to open documents: one for PDFs, another for e-books, another for comics. **RemedyPDF** opens them all, reads comfortably, and makes the small PDF edits without getting in the way.
+
+## Built with RemedyUI
+
+Since 2.0, RemedyPDF runs on **RemedyUI**, Ahmi Darrow's own Rust UI engine. The window, the page view, text rendering, accessibility and the signed updater come from RemedyUI:
+
+- **Native, with no Python.** The 1.x releases were a Python app; 2.0 replaced all of it.
+- **One app on Windows, Linux and Android**, drawn by the same engine. Linux and the native Android app are new in 2.0.
+- **Permissive licences throughout.** PDFs are handled by PDFium.
+- **Same engine as [Hearth](https://github.com/AhmiDarrow/Hearth)**, [SecretSticky](https://github.com/AhmiDarrow/SecretSticky) and [SecretFolder](https://github.com/AhmiDarrow/SecretFolder).
+
+RemedyUI is not public yet.
+
+## Features
+
+| Area | Details |
+|------|---------|
+| **Formats** | PDF, EPUB, XPS/OXPS, CBZ, CBR, FB2, HTML, TXT, SVG, DOCX, MOBI, and PNG, JPG, BMP, GIF, TIFF and WEBP images |
+| **Save as PDF** | Anything RemedyPDF opens can be saved as a PDF |
+| **Edit** | Add text and images to a PDF; hold a page to add text on a touch screen |
+| **Passwords** | Password-protected PDFs stay protected when saved (AES-256) |
+| **Reading** | Book mode (two pages side by side), reader mode, fit modes, view rotation |
+| **Comfort** | Nine themes, page filters (invert, sepia and more), brightness and contrast |
+| **Zoom** | 15% steps, or 1% for fine control |
+| **Find** | Search the text of a document |
+| **Keyboard** | Help → Keyboard Shortcuts lists every shortcut |
+| **Updates** | Signed updates from GitHub Releases, installed automatically unless you turn that off |
 
 ## Install
 
-| System | File | Updates |
-|---|---|---|
-| Windows 10 and later (64-bit) | `RemedyPDF_<version>_x64-setup.exe`, or the portable zip | The installed app updates with no clicks and reopens your document |
-| Linux x86-64 (glibc 2.28 and later) | `RemedyPDF_<version>_linux-x86_64`, or the `.tar.gz` | The program replaces itself and restarts |
-| Android 8 and later (ARM) | `RemedyPDF_<version>_universal.apk` | Android asks you to confirm each update |
+Download from **[Releases](https://github.com/AhmiDarrow/RemedyPDF/releases/latest)**.
 
-RemedyPDF 1.x on Windows updates to version 2 from inside the app.
+### Windows (10 or later, 64-bit)
 
-The Windows installer is not code-signed, so Windows may warn you the first time.
+Run `RemedyPDF_<version>_x64-setup.exe`, or unpack the portable zip. The installer is not code-signed, so Windows may warn you the first time. RemedyPDF 1.x updates to 2.0 from inside the app.
 
-## Good to know (Android)
+### Linux (x86-64)
 
-- Android asks you once to allow RemedyPDF to install updates. Google Play Protect may also
-  offer to scan the app, because it has not seen it before.
-- Secure connections are checked against the certificates built into Android. Certificates
-  you add or switch off in Android's settings are not taken into account, and a revoked
-  website certificate is not detected. Updates are protected separately: only a file signed
-  with RemedyPDF's update key is offered for install.
-- **Known issue:** text that arrives in a very fast burst, as from a barcode scanner or an
-  automated tool, can lose letters. Typing on the on-screen keyboard one key at a time lost
-  none in testing.
+Needs glibc 2.28 or newer (Debian 10, RHEL 8, Ubuntu 20.04 and later).
 
-## Building
+```bash
+tar -xzf RemedyPDF-<version>-linux-x86_64.tar.gz --strip-components=1 -C ~/.local
+```
 
-The app is in `remedyui/`. It expects the RemedyUI engine beside this repository, at the
-path in `remedyui/Cargo.toml`, and PDFium from
-[pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) in `remedyui/pdfium/`
-(`pdfium.dll` for Windows, and `linux-x64/`, `arm64-v8a/`, `armeabi-v7a/` for the others).
+### Android (8 or later, ARM)
+
+Install `RemedyPDF_<version>_universal.apk`. Android asks you once to allow RemedyPDF to install updates, and Google Play Protect may offer to scan the app.
+
+### Updates
+
+RemedyPDF checks for updates and installs only files signed with its update key. On Windows and Linux it installs them by itself and reopens your document, and it never restarts over unsaved changes. Android asks you to confirm each one. Turn this off with **Help → Install Updates Automatically**.
+
+## Known issues
+
+- **Android:** text that arrives in a very fast burst can lose letters. Typing one key at a time lost none in testing.
+- **Android:** secure connections are checked against the certificates built into Android. Certificates you add or switch off in Android's settings are not taken into account, and revoked website certificates are not detected. Updates are still protected by their signature.
+
+## Development
+
+RemedyPDF 2.0 and later is the Rust app in `remedyui/`. RemedyUI is not public yet, so building needs a checkout of it at the path in `remedyui/Cargo.toml`, and PDFium from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) in `remedyui/pdfium/`.
 
 ```bash
 cd remedyui
-cargo test
-python tests/pdf.py        # also encryption, formats, reflow, xps
+cargo test              # the app's screens and updates
+python tests/pdf.py     # also encryption, formats, reflow and xps
+cargo run --release
 ```
 
-The Python tests use PyMuPDF only as a reference to compare against. It is not part of the app.
+The Python tests use PyMuPDF only as a reference to compare against. It is not part of the app. Packages are built with `cargo remedy package` (see `remedyui/remedy.toml`).
 
-Packaging uses `cargo remedy package` (see `remedyui/remedy.toml`). `pack/build-linux.sh`
-builds the Linux package in WSL, and `pack/latest_json.py` collects the signed files and
-writes the update list.
+## Stack
+
+- **Rust** + **RemedyUI** (windows, text, pages, accessibility, updates)
+- **Documents:** PDFium for PDFs, with RemedyPDF's own readers for e-books, DOCX and XPS
+- **Updates:** minisign-signed GitHub Releases
+
+## About
+
+Hi I'm Ahmi, hope this helps!
+
+- GitHub: [github.com/AhmiDarrow](https://github.com/AhmiDarrow)
+- This project: [AhmiDarrow/RemedyPDF](https://github.com/AhmiDarrow/RemedyPDF)
+- Releases: [github.com/AhmiDarrow/RemedyPDF/releases](https://github.com/AhmiDarrow/RemedyPDF/releases)
+- Support: [patreon.com/cw/AhmiDarrow](https://www.patreon.com/cw/AhmiDarrow) — thank you!
 
 ## License
 
-MIT, © Ahmi Darrow. Third-party notices ship with each package.
+[MIT](LICENSE) © Ahmi Darrow. Third-party notices ship with each package.
