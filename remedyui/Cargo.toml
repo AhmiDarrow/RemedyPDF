@@ -1,0 +1,55 @@
+[package]
+name = "remedypdf"
+version = "2.0.0"
+description = "RemedyPDF on RemedyUI"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Its own workspace: separate from the Python app while both exist.
+[workspace]
+
+[lib]
+# The APK loads the app as a shared library; the desktop links it into src/main.rs.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "RemedyPDF"
+path = "src/main.rs"
+
+[dependencies]
+lopdf = { version = "0.47", default-features = false }
+pdfium-render = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
+fast_image_resize = "5"
+rars = { version = "0.13", default-features = false, features = ["encryption"] }
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "raster-images"] }
+ttf-parser = "0.25"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+encoding_rs = "0.8"
+html5ever = "0.40"
+markup5ever_rcdom = "0.40.1"
+percent-encoding = "2"
+roxmltree = "0.21"
+# RemedyUI (sibling checkout). The three below the facade are what reflowed pages are laid
+# out and drawn with, off screen.
+remedy-ui-engine = { path = "../../Projects/RemedyUI/crates/remedy-ui-engine", features = ["paint", "render-cpu"] }
+remedy-ui-text = { path = "../../Projects/RemedyUI/crates/remedy-ui-text", features = ["system-fonts"] }
+remedy-ui-fonts = { path = "../../Projects/RemedyUI/crates/remedy-ui-fonts" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+remedy-ui = { path = "../../Projects/RemedyUI/crates/remedy-ui", features = ["pages", "update"] }
+getrandom = "0.3"
+tempfile = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+sha2 = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+remedy-ui = { path = "../../Projects/RemedyUI/crates/remedy-ui", features = ["pages", "update", "headless"] }
+
+[patch.crates-io]
+# Patched: reads an /Encrypt dictionary written directly in the trailer (see vendor/lopdf/PATCH.md).
+lopdf = { path = "vendor/lopdf" }

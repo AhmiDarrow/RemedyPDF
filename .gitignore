@@ -1,0 +1,10 @@
+remedyui/target/
+remedyui/pdfium/
+__pycache__/
+*.key
+*.keystore
+.env
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
